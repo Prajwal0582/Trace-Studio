@@ -6,7 +6,7 @@
 //   input  – text field / textarea / select       → library Text field (or frames)
 //   chip   – small rounded label                  → library Chip
 //   image  – img / svg / canvas                   → placeholder frame named after it
-//   nav    – the app's left sidebar               → library Navigation
+//   nav    – the app's left sidebar               → one shared component, reused per screen
 // Coordinates are relative to the captured area (viewport, or full page).
 export function extractLayout({ fullPage }) {
   const vw = window.innerWidth;

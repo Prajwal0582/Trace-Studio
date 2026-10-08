@@ -3,6 +3,7 @@
 // instances (Button, Chip, Navigation), library colour + text styles, and
 // plain frames for everything else. The code runs through Figma MCP
 // `use_figma` (or the Trace Importer plugin). One call per screen.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,85 @@ function compact(layout) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Shared parts: the left navigation and top header repeat on every screen.
+// Instead of redrawing them (or swapping in a library component that may be an
+// older design), build each one once as a Figma component from what the
+// prototype shows, and place an instance on every screen with per-screen
+// overrides (text, colours, pieces hidden on screens that don't have them).
+const contains = (b, n) => n.x >= b.x - 1 && n.y >= b.y - 1 && n.x + n.w <= b.x + b.w + 1 && n.y + n.h <= b.y + b.h + 1;
+const isSidebar = (L, n) => n.t === "rect" && n.x <= 2 && n.w >= 160 && n.w <= 320 && n.h >= L.h * 0.6 && n.bg && n.bg[0] + n.bg[1] + n.bg[2] < 330;
+// Same piece on two screens: same kind, same place (text may change length).
+const samePiece = (a, b) =>
+  a.t === b.t && Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 3 && Math.abs(a.h - b.h) <= 4 && (a.t === "text" || Math.abs(a.w - b.w) <= 3);
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+function regionsOf(L, { libraryNav }) {
+  const out = [];
+  const sb = libraryNav ? null : L.nodes.find((n) => isSidebar(L, n));
+  if (sb) out.push({ kind: "nav", name: "Left navigation", box: sb });
+  const left = sb ? sb.x + sb.w : 0;
+  const hd = L.nodes.find((n) => n.t === "rect" && n.y <= 2 && n.h >= 40 && n.h <= 120 && n.x >= left - 2 && n.w >= (L.w - left) * 0.8);
+  if (hd) out.push({ kind: "header", name: "Top header", box: hd });
+  return out;
+}
+
+// screens: [{ id, layout }] in build order. Returns, per screen, the layout
+// without the shared regions and the instances to place instead.
+export function sharedParts(screens, { pageName = "", libraryNav = false } = {}) {
+  const groups = new Map();
+  const perScreen = {};
+  for (const { id, layout: L } of screens) {
+    let nodes = L.nodes.slice();
+    for (const r of regionsOf(L, { libraryNav })) {
+      const b = r.box;
+      const inside = nodes.filter((n) => contains(b, n));
+      if (!inside.length) continue;
+      nodes = nodes.filter((n) => !inside.includes(n));
+      const key = `${r.kind}:${Math.round(b.w / 8)}x${Math.round(b.h / 8)}`;
+      if (!groups.has(key)) groups.set(key, { key, kind: r.kind, name: r.name, w: b.w, h: b.h, members: [] });
+      groups.get(key).members.push({ sid: id, x: b.x, y: b.y, nodes: inside.map((n) => ({ ...n, x: n.x - b.x, y: n.y - b.y })) });
+    }
+    perScreen[id] = { layout: { ...L, nodes }, parts: [] };
+  }
+  const named = {};
+  for (const g of groups.values()) {
+    // The component holds every piece seen on any screen; each screen hides what it lacks.
+    const union = [];
+    for (const m of g.members) {
+      m.hit = new Map();
+      for (const n of m.nodes) {
+        let i = union.findIndex((u, j) => !m.hit.has(j) && samePiece(u, n));
+        if (i < 0) i = union.push(n) - 1;
+        m.hit.set(i, n);
+      }
+    }
+    named[g.kind] = (named[g.kind] || 0) + 1;
+    const name = named[g.kind] > 1 ? `${g.name} ${named[g.kind]}` : g.name;
+    const nodes = compact({ w: g.w, h: g.h, nodes: union }).n;
+    const def = {
+      id: crypto.createHash("sha1").update(`${pageName}|${g.key}`).digest("hex").slice(0, 12),
+      name,
+      w: g.w,
+      h: g.h,
+      nodes,
+      hash: crypto.createHash("sha1").update(JSON.stringify(nodes)).digest("hex").slice(0, 12),
+    };
+    for (const m of g.members) {
+      const use = { def, x: m.x, y: m.y, hide: [], text: {}, bg: {}, color: {} };
+      union.forEach((u, i) => {
+        const n = m.hit.get(i);
+        if (!n) return use.hide.push(i);
+        if ((n.text || "") !== (u.text || "")) use.text[i] = n.text || "";
+        if (!same(n.bg, u.bg)) use.bg[i] = n.bg || null;
+        if (!same(n.f?.color, u.f?.color)) use.color[i] = n.f?.color || null;
+      });
+      perScreen[m.sid].parts.push(use);
+    }
+  }
+  return perScreen;
+}
+
 export function screenScript({ layout, frameName, pageName, x, y, lib, screenId, notes }) {
   const data = { layout: compact(layout), frameName, pageName, x, y, screenId, notes: notes || "", lib: { components: lib.components, fills: lib.fills, texts: lib.texts } };
   return `${BUILDER}\nreturn await buildScreen(${JSON.stringify(data)});`;
@@ -42,8 +122,8 @@ figma.root.setSharedPluginData("trace", "builder_v", ${JSON.stringify(ENGINE_VER
 figma.root.setSharedPluginData("trace", "lib_${lib.id}", ${JSON.stringify(JSON.stringify({ components: lib.components, fills: lib.fills, texts: lib.texts }))});
 return { installed: true, bytes: ${BUILDER.length} };`;
 }
-export function screenCall({ layout, frameName, pageName, x, y, libId, screenId, notes }) {
-  const data = { layout: compact(layout), frameName, pageName, x, y, libId, screenId, notes: notes || "" };
+export function screenCall({ layout, frameName, pageName, x, y, libId, screenId, notes, parts = [] }) {
+  const data = { layout: compact(layout), frameName, pageName, x, y, libId, screenId, notes: notes || "", parts };
   return `const src = figma.root.getSharedPluginData("trace", "builder");
 if (!src) throw new Error("Trace builder not installed in this file");
 const AF = Object.getPrototypeOf(async function () {}).constructor;
@@ -183,66 +263,134 @@ async function buildScreen(D) {
   // Pill-shaped buttons are chips in the design system.
   for (const n of list) if (n.t === "button" && n.text && n.h <= 32 && n.r >= n.h / 2 - 1 && n.bg) n.t = "chip";
 
+  async function draw(parent, n) {
+    if (n.t === "nav") {
+      const v = await variant("Navigation", { Type: "Default", Size: "Desktop" });
+      const inst = v.createInstance(); parent.appendChild(inst);
+      inst.x = n.x; inst.y = n.y;
+      try { inst.resize(n.w, Math.max(inst.height, n.h)); } catch (e) {}
+      inst.name = "Navigation";
+      count("Navigation");
+    } else if (n.t === "button" && n.text && n.text.length <= 3 && n.w <= 48) {
+      // initials → avatar
+      const a = figma.createFrame(); a.name = "Avatar / " + n.text;
+      const d = Math.min(n.w, n.h, 32); a.resize(d, d); a.cornerRadius = d / 2;
+      a.x = n.x + (n.w - d) / 2; a.y = n.y + (n.h - d) / 2;
+      await fill(a, [234, 236, 240, 1]); parent.appendChild(a);
+      await text(a, { text: n.text, f: { size: 12, weight: 600, color: [52, 64, 84, 1], align: "center" } }, 0, 0, d, d);
+    } else if (n.t === "button" && n.h <= 56 && n.w <= 420) {
+      const filled = n.bg && n.bg[3] >= 0.9 && hue(n.bg) === "Blue";
+      const hierarchy = filled ? "Primary" : n.bg && n.bg[3] >= 0.9 || n.border ? "Secondary" : n.f && n.f.color && hue(n.f.color) === "Blue" ? "Subtle link" : "Tertiary gray";
+      const size = n.h <= 36 ? "sm" : n.h <= 40 ? "md" : n.h <= 44 ? "lg" : "xl";
+      const icon = n.icon && n.text ? "Leading" : n.icon ? "Only" : "False";
+      const v = await variant("Button", { Hierarchy: hierarchy, Size: size, Icon: icon, State: n.disabled ? "Disabled" : "Default", Destructive: "False" });
+      const inst = v.createInstance(); parent.appendChild(inst);
+      if (n.text) await setLabel(inst, n.text);
+      try { inst.resize(Math.max(inst.width, n.w), inst.height); } catch (e) {}
+      inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
+      inst.name = "Button / " + (n.text || "icon").slice(0, 30);
+      count("Button");
+    } else if (n.t === "chip") {
+      const v = await variant("Chip", { Size: n.h <= 22 ? "sm" : n.h <= 26 ? "md" : "lg", Type: "Pill", Icon: "None", Color: hue(n.bg), State: "Default" });
+      const inst = v.createInstance(); parent.appendChild(inst);
+      await setLabel(inst, n.text);
+      if (inst.width > n.w + 4) { try { inst.resize(n.w, inst.height); } catch (e) {} }
+      inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
+      inst.name = "Chip / " + n.text.slice(0, 30);
+      count("Chip");
+    } else if (n.t === "input") {
+      const r = await box(parent, n, n.multiline ? "Text area" : "Input");
+      const label = n.value || n.placeholder;
+      if (label) {
+        const t = await text(r, { text: label, f: { ...(n.f || {}), color: n.value ? n.f && n.f.color : [102, 112, 133, 1] } }, 12, n.multiline ? 10 : 0, n.w - 24, n.multiline ? 20 : n.h);
+      }
+      if (n.focused) r.effects = [{ type: "DROP_SHADOW", color: { r: 0, g: 0.45, b: 0.62, a: 0.25 }, offset: { x: 0, y: 0 }, radius: 0, spread: 3, visible: true, blendMode: "NORMAL" }];
+    } else if (n.t === "image") {
+      const r = figma.createFrame();
+      r.resize(Math.max(1, n.w), Math.max(1, n.h)); r.x = n.x; r.y = n.y;
+      if (n.kind === "svg" && n.w <= 40) { r.name = "Icon"; r.cornerRadius = 3; r.fills = [paint([...(n.fill || [102, 112, 133]).slice(0, 3), 0.35])]; }
+      else { r.name = "Image: " + (n.name || "image"); r.cornerRadius = 4; await fill(r, [234, 236, 240, 1]); }
+      parent.appendChild(r);
+    } else if (n.t === "check") {
+      const r = await box(parent, { ...n, bg: n.on ? [0, 114, 159, 1] : [255, 255, 255, 1], border: { w: 1, c: n.on ? [0, 114, 159, 1] : [208, 213, 221, 1] }, r: n.kind === "radio" ? 99 : 4 }, n.kind === "radio" ? "Radio" : "Checkbox");
+    } else if (n.t === "button") {
+      // big clickable card → plain frame + label
+      const r = await box(parent, n, "Card");
+      if (n.text) await text(r, { text: n.text, f: n.f }, 16, 0, n.w - 32, n.h);
+    } else if (n.t === "rect") {
+      await box(parent, n, n.fixed ? "Overlay" : "Container");
+    } else if (n.t === "text") {
+      await text(parent, n, n.x, n.y, n.w, n.h);
+    }
+  }
+
+  // ---- shared parts (built once as components, placed as instances)
+  async function partsPage() {
+    let pg = figma.root.children.find((p) => p.name === "Trace · Shared parts");
+    if (!pg) { pg = figma.createPage(); pg.name = "Trace · Shared parts"; }
+    return pg;
+  }
+  async function master(def) {
+    const key = "part_" + def.id;
+    let comp = null;
+    const id = figma.root.getSharedPluginData("trace", key);
+    if (id) { comp = await figma.getNodeByIdAsync(id); if (comp && comp.type !== "COMPONENT") comp = null; }
+    if (comp && comp.getSharedPluginData("trace", "hash") === def.hash) return comp;
+    if (!comp) {
+      const pg = await partsPage();
+      comp = figma.createComponent();
+      comp.y = pg.children.reduce((m, c) => Math.max(m, c.y + c.height + 120), 0);
+      pg.appendChild(comp);
+      figma.root.setSharedPluginData("trace", key, comp.id);
+    } else for (const c of [...comp.children]) c.remove(); // design changed: redraw in place, instances follow
+    comp.name = def.name;
+    comp.resize(Math.max(1, def.w), Math.max(1, def.h));
+    comp.clipsContent = true;
+    comp.fills = [];
+    const map = [];
+    for (const n of def.nodes) {
+      const before = comp.children.length;
+      try { await draw(comp, n); } catch (e) { report.failures.push(def.name + " / " + (n.t || "?") + ": " + e.message); }
+      map.push(comp.children.length > before ? comp.children.length - 1 : -1);
+    }
+    comp.setSharedPluginData("trace", "hash", def.hash);
+    comp.setSharedPluginData("trace", "map", JSON.stringify(map));
+    return comp;
+  }
+  async function setText(k, value) {
+    if (k.type === "INSTANCE") return setLabel(k, value);
+    const t = k.type === "TEXT" ? k : k.findOne && k.findOne((x) => x.type === "TEXT");
+    if (!t) return;
+    for (const f of t.getRangeAllFontNames(0, t.characters.length)) await figma.loadFontAsync(f);
+    t.characters = value || " ";
+  }
+  report.parts = [];
+  for (const use of D.parts || []) {
+    try {
+      const comp = await master(use.def);
+      const map = JSON.parse(comp.getSharedPluginData("trace", "map") || "[]");
+      const inst = comp.createInstance();
+      frame.appendChild(inst);
+      inst.x = use.x; inst.y = use.y;
+      const kid = (i) => inst.children[map[i]];
+      for (const i of use.hide) { const k = kid(i); if (k) k.visible = false; }
+      for (const [i, v] of Object.entries(use.text)) { const k = kid(i); if (k) await setText(k, v); }
+      for (const [i, c] of Object.entries(use.bg)) { const k = kid(i); if (k && k.type !== "TEXT" && k.type !== "INSTANCE") await fill(k, c); }
+      for (const [i, c] of Object.entries(use.color)) {
+        const k = kid(i);
+        const t = k && (k.type === "TEXT" ? k : k.type !== "INSTANCE" && k.findOne && k.findOne((x) => x.type === "TEXT"));
+        if (t) await fill(t, c || [0, 0, 0, 1]);
+      }
+      report.parts.push(comp.name);
+      count(comp.name);
+    } catch (e) {
+      report.failures.push((use.def.name || "Shared part") + ": " + e.message);
+    }
+  }
+
   for (const n of list) {
     try {
-      if (n.t === "nav") {
-        const v = await variant("Navigation", { Type: "Default", Size: "Desktop" });
-        const inst = v.createInstance(); frame.appendChild(inst);
-        inst.x = n.x; inst.y = n.y;
-        try { inst.resize(n.w, Math.max(inst.height, n.h)); } catch (e) {}
-        inst.name = "Navigation";
-        count("Navigation");
-      } else if (n.t === "button" && n.text && n.text.length <= 3 && n.w <= 48) {
-        // initials → avatar
-        const a = figma.createFrame(); a.name = "Avatar / " + n.text;
-        const d = Math.min(n.w, n.h, 32); a.resize(d, d); a.cornerRadius = d / 2;
-        a.x = n.x + (n.w - d) / 2; a.y = n.y + (n.h - d) / 2;
-        await fill(a, [234, 236, 240, 1]); frame.appendChild(a);
-        await text(a, { text: n.text, f: { size: 12, weight: 600, color: [52, 64, 84, 1], align: "center" } }, 0, 0, d, d);
-      } else if (n.t === "button" && n.h <= 56 && n.w <= 420) {
-        const filled = n.bg && n.bg[3] >= 0.9 && hue(n.bg) === "Blue";
-        const hierarchy = filled ? "Primary" : n.bg && n.bg[3] >= 0.9 || n.border ? "Secondary" : n.f && n.f.color && hue(n.f.color) === "Blue" ? "Subtle link" : "Tertiary gray";
-        const size = n.h <= 36 ? "sm" : n.h <= 40 ? "md" : n.h <= 44 ? "lg" : "xl";
-        const icon = n.icon && n.text ? "Leading" : n.icon ? "Only" : "False";
-        const v = await variant("Button", { Hierarchy: hierarchy, Size: size, Icon: icon, State: n.disabled ? "Disabled" : "Default", Destructive: "False" });
-        const inst = v.createInstance(); frame.appendChild(inst);
-        if (n.text) await setLabel(inst, n.text);
-        try { inst.resize(Math.max(inst.width, n.w), inst.height); } catch (e) {}
-        inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
-        inst.name = "Button / " + (n.text || "icon").slice(0, 30);
-        count("Button");
-      } else if (n.t === "chip") {
-        const v = await variant("Chip", { Size: n.h <= 22 ? "sm" : n.h <= 26 ? "md" : "lg", Type: "Pill", Icon: "None", Color: hue(n.bg), State: "Default" });
-        const inst = v.createInstance(); frame.appendChild(inst);
-        await setLabel(inst, n.text);
-        if (inst.width > n.w + 4) { try { inst.resize(n.w, inst.height); } catch (e) {} }
-        inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
-        inst.name = "Chip / " + n.text.slice(0, 30);
-        count("Chip");
-      } else if (n.t === "input") {
-        const r = await box(frame, n, n.multiline ? "Text area" : "Input");
-        const label = n.value || n.placeholder;
-        if (label) {
-          const t = await text(r, { text: label, f: { ...(n.f || {}), color: n.value ? n.f && n.f.color : [102, 112, 133, 1] } }, 12, n.multiline ? 10 : 0, n.w - 24, n.multiline ? 20 : n.h);
-        }
-        if (n.focused) r.effects = [{ type: "DROP_SHADOW", color: { r: 0, g: 0.45, b: 0.62, a: 0.25 }, offset: { x: 0, y: 0 }, radius: 0, spread: 3, visible: true, blendMode: "NORMAL" }];
-      } else if (n.t === "image") {
-        const r = figma.createFrame();
-        r.resize(Math.max(1, n.w), Math.max(1, n.h)); r.x = n.x; r.y = n.y;
-        if (n.kind === "svg" && n.w <= 40) { r.name = "Icon"; r.cornerRadius = 3; r.fills = [paint([...(n.fill || [102, 112, 133]).slice(0, 3), 0.35])]; }
-        else { r.name = "Image: " + (n.name || "image"); r.cornerRadius = 4; await fill(r, [234, 236, 240, 1]); }
-        frame.appendChild(r);
-      } else if (n.t === "check") {
-        const r = await box(frame, { ...n, bg: n.on ? [0, 114, 159, 1] : [255, 255, 255, 1], border: { w: 1, c: n.on ? [0, 114, 159, 1] : [208, 213, 221, 1] }, r: n.kind === "radio" ? 99 : 4 }, n.kind === "radio" ? "Radio" : "Checkbox");
-      } else if (n.t === "button") {
-        // big clickable card → plain frame + label
-        const r = await box(frame, n, "Card");
-        if (n.text) await text(r, { text: n.text, f: n.f }, 16, 0, n.w - 32, n.h);
-      } else if (n.t === "rect") {
-        await box(frame, n, n.fixed ? "Overlay" : "Container");
-      } else if (n.t === "text") {
-        await text(frame, n, n.x, n.y, n.w, n.h);
-      }
+      await draw(frame, n);
     } catch (e) {
       report.failures.push((n.t || "?") + ": " + e.message);
     }

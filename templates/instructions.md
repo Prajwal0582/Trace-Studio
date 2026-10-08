@@ -107,6 +107,21 @@ review flags and state-coverage gaps. Tell the designer about any gaps you chose
 
 ## 5. Build in Figma
 
+**Match the prototype, not the library's idea of it.** The prototype is the source of truth for
+what each screen looks like. A library component replaces a prototype element only when it looks
+the same (compare `get_screenshot` of the instance with `trace_screenshot`). If the library's
+version is older or different (for example V1's Navigation vs the prototype's sidebar), build the
+element from the prototype and tell the designer in a review note.
+
+**Shared parts are built once and reused.** The left navigation, top header and any other region
+that repeats across screens become **one local component** each (on the page
+"Trace · Shared parts"), and every screen gets an **instance** with per-screen overrides: the
+active item, changed text, pieces hidden where that screen doesn't show them. Never redraw them
+per screen, and never detach the instances. `node bin/build-prep.mjs <runDir>` does this
+automatically (add `--library-nav` only if the library Navigation really matches). When building
+by hand with `trace_figma_script`, follow the same rule: build the part on the first screen, turn
+it into a component, and use instances of it on the rest.
+
 **With Figma MCP (preferred):**
 1. Load the Figma skill for `use_figma` first if your environment provides one (e.g. `figma-use`).
 2. For each screen (one or two at a time, in order), call `trace_figma_script` with the screen ids.

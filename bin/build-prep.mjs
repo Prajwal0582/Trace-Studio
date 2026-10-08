@@ -2,16 +2,22 @@
 // Prepares a Figma build for an approved run: positions frames like the
 // designer's storyboard, writes one Figma script per screen plus a links
 // script, and marks the run as building in Trace Studio.
-//   node bin/build-prep.mjs <runDir> [libraryId]
+//   node bin/build-prep.mjs <runDir> [libraryId] [--library-nav]
+// The left navigation and top header are built once as components from the
+// prototype and reused on every screen. --library-nav swaps the sidebar for
+// the library's Navigation component instead (only when it matches).
 import fs from "node:fs";
 import path from "node:path";
 import { Run } from "../src/run.js";
-import { loadLibrary, screenCall, installScript, linksScript } from "../src/figma-build.js";
+import { loadLibrary, screenCall, installScript, linksScript, sharedParts } from "../src/figma-build.js";
 
-const dir = path.resolve(process.argv[2]);
+const args = process.argv.slice(2);
+const libraryNav = args.includes("--library-nav");
+const [dirArg, libArg] = args.filter((a) => !a.startsWith("--"));
+const dir = path.resolve(dirArg);
 const run = new Run(dir);
 const d = run.data;
-const libId = process.argv[3] || (/V2/.test(d.project.library || "") ? "v2" : "v1");
+const libId = libArg || (/V2/.test(d.project.library || "") ? "v2" : "v1");
 const lib = loadLibrary(libId);
 const pageName = `Trace / ${d.project.flowName}`.slice(0, 100);
 const isDefault = (s) => !s.state || s.state === "default";
@@ -25,6 +31,7 @@ const live = d.screens.filter((s) => s.status !== "removed");
 const out = path.join(dir, "figma");
 fs.mkdirSync(out, { recursive: true });
 const plan = [];
+const jobs = [];
 let n = 0;
 steps.forEach((step, ci) => {
   const col = live.filter((s) => s.step === step).sort((a, b) => (a.order != null || b.order != null ? (a.order ?? 1e6 + a._i) - (b.order ?? 1e6 + b._i) : (isDefault(b) ? 1 : 0) - (isDefault(a) ? 1 : 0) || a._i - b._i));
@@ -33,12 +40,17 @@ steps.forEach((step, ci) => {
     if (!s.layout) throw new Error(`${s.id} has no recorded layout`);
     const layout = JSON.parse(fs.readFileSync(path.join(dir, s.layout), "utf8"));
     const frameName = `${String(++n).padStart(2, "0")} ${s.name}${isDefault(s) ? "" : " — " + cap(s.state)}`;
-    const code = screenCall({ layout, frameName, pageName, x: ci * (layout.w + 480), y, libId: lib.id, screenId: s.id, notes: s.notes });
-    fs.writeFileSync(path.join(out, `${s.id}.js`), code);
-    plan.push({ id: s.id, frameName, file: path.join(out, `${s.id}.js`), bytes: code.length });
+    jobs.push({ s, layout, frameName, x: ci * (layout.w + 480), y });
     y += layout.h + 360;
   }
 });
+const shared = sharedParts(jobs.map((j) => ({ id: j.s.id, layout: j.layout })), { pageName, libraryNav });
+for (const { s, frameName, x, y } of jobs) {
+  const { layout, parts } = shared[s.id];
+  const code = screenCall({ layout, frameName, pageName, x, y, libId: lib.id, screenId: s.id, notes: s.notes, parts });
+  fs.writeFileSync(path.join(out, `${s.id}.js`), code);
+  plan.push({ id: s.id, frameName, file: path.join(out, `${s.id}.js`), bytes: code.length, sharedParts: parts.map((p) => p.def.name) });
+}
 const name = (id) => plan.find((p) => p.id === id)?.frameName;
 const links = d.edges.filter((e) => name(e.from) && name(e.to)).map((e) => ({ from: name(e.from), to: name(e.to), label: e.label }));
 fs.writeFileSync(path.join(out, "links.js"), linksScript({ pageName, links }));
