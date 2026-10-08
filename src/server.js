@@ -13,9 +13,11 @@ import { buildPlan, writeHandoff } from "./plan.js";
 import { findMappingFile } from "./mapping.js";
 import { Run } from "./run.js";
 import { ProjectStore } from "./projects.js";
-import { designSystem } from "./design-systems.js";
+import { designSystem, FRAME } from "./design-systems.js";
 import { TRACE_HOME } from "./home.js";
 import { startStudio } from "./studio-server.js";
+import { prepareBuild, batchCode, libraryIdFor } from "./build-run.js";
+import { loadLibrary, installScript } from "./figma-build.js";
 import { exec } from "node:child_process";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -132,8 +134,8 @@ export async function startServer({ cwd = process.cwd() } = {}) {
       inputSchema: {
         url: z.string().describe("Prototype URL, e.g. http://localhost:5173/campaigns"),
         flowName: z.string().describe("Short name for the flow, e.g. 'Create campaign'"),
-        width: z.number().int().optional().describe("Viewport width (default 1440)"),
-        height: z.number().int().optional().describe("Viewport height (default 900)"),
+        width: z.number().int().optional().describe("Viewport width (default 1496, the Figma frame width)"),
+        height: z.number().int().optional().describe("Viewport height (default 1024)"),
         headless: z.boolean().optional().describe("Run the browser hidden (default true). Set false to watch."),
         mappingFile: z.string().optional().describe("Path to trace.mapping.json (auto-detected by default)"),
         source: z.string().optional().describe("Where the prototype came from (repo URL or folder) — shown in Trace Studio"),
@@ -143,7 +145,7 @@ export async function startServer({ cwd = process.cwd() } = {}) {
         flowId: z.string().optional().describe("The picked flow being traced (from trace_project_next)"),
       },
     },
-    guard(async ({ url, flowName, width = 1440, height = 900, headless, mappingFile, source, library, scenario, projectId, flowId }) => {
+    guard(async ({ url, flowName, width = FRAME.w, height = FRAME.h, headless, mappingFile, source, library, scenario, projectId, flowId }) => {
       const s = new TraceSession({
         flowName,
         url,
@@ -414,35 +416,70 @@ export async function startServer({ cwd = process.cwd() } = {}) {
     })
   );
 
+  // Which run to build: the current session's, or a past one by id (after trace_end).
+  const runFor = ({ sessionId, runId }) => {
+    if (runId) {
+      const dir = path.join(outDir, path.basename(runId));
+      if (!fs.existsSync(path.join(dir, "run.json"))) throw new Error(`Unknown run ${runId}`);
+      return new Run(dir);
+    }
+    return get(sessionId).run;
+  };
+
+  server.registerTool(
+    "trace_figma_install",
+    {
+      title: "Install the Trace builder in a Figma file (once per file)",
+      description:
+        "Returns Plugin-API code that stores Trace's builder and the design-system profile in the destination Figma file. Pass it unchanged to Figma MCP use_figma once per file (and again only if a build call says TRACE_NOT_INSTALLED). After that, trace_figma_script calls are small.",
+      inputSchema: { sessionId: z.string().optional(), runId: z.string().optional(), library: z.enum(["v1", "v2"]).optional() },
+    },
+    guard(async ({ sessionId, runId, library }) => {
+      const run = runFor({ sessionId, runId });
+      const lib = loadLibrary(libraryIdFor(run, library));
+      return text({ figmaFileKey: run.data.figma?.fileKey || "(the destination file)", code: installScript(lib), next: "Run this with use_figma once, then call trace_figma_script." });
+    })
+  );
+
   server.registerTool(
     "trace_figma_script",
     {
-      title: "Get Figma build code for screens",
+      title: "Get Figma build calls for screens",
       description:
-        "Returns Plugin-API JavaScript that builds the given screens (with library instances, texts, placeholders, notes, prototype links) on the page 'Trace / <flow>'. Pass the code unchanged to Figma MCP use_figma. Idempotent per screen.",
+        "Returns short use_figma calls that build the run's screens on the page 'Trace / <flow>': the design system's app shell (V1: navigation + header) with the active nav item and header text set per screen, the content rebuilt with library components (buttons, chips, text fields), repeated code components built once and reused, dialogs as overlay frames. Each call covers several screens. Pass each `code` unchanged to Figma MCP use_figma; then run `linksCode` once for prototype links. If a call fails with TRACE_NOT_INSTALLED, run trace_figma_install first. Idempotent per screen.",
       inputSchema: {
         screenIds: z.array(z.string()).optional().describe("Screens to build, e.g. ['s1','s2']. Default: all."),
-        notes: z.boolean().optional().describe("Add handoff-notes panels (default true)"),
-        planFile: z.string().optional().describe("Use a plan.json from an earlier session"),
+        runId: z.string().optional().describe("Build a past run (its folder name) instead of the current session"),
+        sessionId: z.string().optional(),
+        shell: z.boolean().optional().describe("Use the design system's app shell for nav + header (default true)"),
+        planFile: z.string().optional().describe("Legacy: build a plan.json with the Trace Importer builder"),
+        notes: z.boolean().optional(),
       },
     },
-    guard(async ({ screenIds, notes = true, planFile }) => {
-      const plan = planFile ? JSON.parse(fs.readFileSync(path.resolve(cwd, planFile), "utf8")) : lastPlan;
-      if (!plan) throw new Error("No plan yet. Call trace_build_plan first (or pass planFile).");
-      const ids = new Set(screenIds?.length ? screenIds : plan.screens.map((s) => s.id));
-      const sub = {
-        flowName: plan.flowName,
-        page: plan.page,
-        screens: plan.screens.filter((s) => ids.has(s.id)).map(({ screenshot, ...rest }) => rest),
-        links: plan.links.filter((l) => ids.has(l.from) || ids.has(l.to)),
-      };
-      if (!sub.screens.length) throw new Error(`No matching screens. Available: ${plan.screens.map((s) => s.id).join(", ")}`);
-      const code = `${builderSource()}\n\nreturn await buildTraceScreens(${JSON.stringify(sub)}, { notes: ${notes} });`;
+    guard(async ({ screenIds, runId, sessionId, shell = true, planFile, notes = true }) => {
+      if (planFile) {
+        const plan = JSON.parse(fs.readFileSync(path.resolve(cwd, planFile), "utf8"));
+        const code = `${builderSource()}\n\nreturn await buildTraceScreens(${JSON.stringify(plan)}, { notes: ${notes} });`;
+        return text({ code });
+      }
+      const run = runFor({ sessionId, runId });
+      const b = prepareBuild(run, { shell });
+      const want = screenIds?.length ? b.screens.filter((x) => screenIds.includes(x.id)) : b.screens;
+      if (!want.length) throw new Error(`No matching screens. Available: ${b.screens.map((x) => x.id).join(", ")}`);
+      // Batch screens into calls of ~40 KB so each use_figma round trip does several.
+      const calls = [];
+      let cur = [];
+      for (const sc of want) {
+        if (cur.length && cur.reduce((n, x) => n + x.code.length, 0) + sc.code.length > 40000) calls.push(cur), (cur = []);
+        cur.push(sc);
+      }
+      if (cur.length) calls.push(cur);
       return text({
-        figmaFileKey: plan.figmaFileKey || "(use the destination file the designer gave you)",
-        screens: sub.screens.map((s) => s.frameName),
-        bytes: code.length,
-        code,
+        figmaFileKey: run.data.figma?.fileKey || "(use the destination file the designer gave you)",
+        pageName: b.pageName,
+        calls: calls.map((c) => ({ screens: c.map((x) => `${x.id} ${x.frameName}`), code: batchCode(c) })),
+        linksCode: b.linksCode,
+        next: "Run each call's code with use_figma (results list each screen's frame id: report it with trace_studio_update screens[].build.nodeId), then linksCode once. Check one screenshot at the end, not every screen.",
       });
     })
   );

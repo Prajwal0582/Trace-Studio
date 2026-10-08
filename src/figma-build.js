@@ -63,7 +63,27 @@ function regionsOf(L, { libraryNav, repeated }) {
 
 // screens: [{ id, layout }] in build order. Returns, per screen, the layout
 // without the shared regions and the instances to place instead.
-export function sharedParts(screens, { pageName = "", libraryNav = false } = {}) {
+// What a screen's own nav and header say, so the design-system shell can be set
+// to match: which nav item is active, and the header's texts.
+function shellState(nav, header, inNav, inHeader) {
+  const st = { activeNav: null, headerTexts: [] };
+  if (nav) {
+    const navBg = JSON.stringify(nav.bg || null);
+    // The active item is the row drawn with its own background.
+    const rows = inNav.filter((n) => n !== nav && (n.t === "rect" || n.t === "button") && n.bg && n.bg[3] > 0.05 && JSON.stringify(n.bg) !== navBg && n.w >= nav.w * 0.5 && n.h <= 72);
+    for (const row of rows) {
+      const label = row.text || inNav.find((n) => n.t === "text" && contains(row, n))?.text;
+      if (label) {
+        st.activeNav = label.trim();
+        break;
+      }
+    }
+  }
+  if (header) st.headerTexts = inHeader.map((n) => n.text).filter(Boolean);
+  return st;
+}
+
+export function sharedParts(screens, { pageName = "", libraryNav = false, shell = null } = {}) {
   // Code components drawn more than once anywhere in the flow.
   const seen = {};
   for (const { layout: L } of screens) for (const n of L.nodes) if (isBlock(n) && n.c && smallEnough(L, n)) seen[n.c] = (seen[n.c] || 0) + 1;
@@ -72,7 +92,25 @@ export function sharedParts(screens, { pageName = "", libraryNav = false } = {})
   const perScreen = {};
   for (const { id, layout: L } of screens) {
     let nodes = L.nodes.slice();
-    for (const r of regionsOf(L, { libraryNav, repeated })) {
+    let shellInfo = null;
+    const regions = regionsOf(L, { libraryNav, repeated });
+    // Only app screens get the shell: one without its own sidebar (sign-in, a
+    // full-page wizard…) is built as it is.
+    const useShell = shell && regions.some((r) => r.kind === "nav");
+    if (useShell) {
+      // The design system's shell replaces the prototype's own nav and header;
+      // the content moves into the shell's content area.
+      const nav = regions.find((r) => r.kind === "nav")?.box;
+      const header = regions.find((r) => r.kind === "header")?.box;
+      const inNav = nav ? nodes.filter((n) => contains(nav, n)) : [];
+      const inHeader = header ? nodes.filter((n) => contains(header, n)) : [];
+      shellInfo = shellState(nav, header, inNav, inHeader);
+      nodes = nodes.filter((n) => !inNav.includes(n) && !inHeader.includes(n));
+      const dx = nav ? shell.content.x - (nav.x + nav.w) : 0;
+      const dy = header ? shell.content.y - (header.y + header.h) : 0;
+      if (dx || dy) nodes = nodes.map((n) => (n.fixed && n.x <= 0 && n.w >= L.w - 2 ? n : { ...n, x: n.x + dx, y: n.y + dy }));
+    }
+    for (const r of useShell ? regionsOf({ ...L, nodes }, { libraryNav: true, repeated }).filter((x) => x.kind.startsWith("c:")) : regions) {
       const b = r.box;
       const inside = nodes.filter((n) => contains(b, n));
       if (!inside.includes(b)) continue; // already part of a bigger shared part
@@ -81,7 +119,7 @@ export function sharedParts(screens, { pageName = "", libraryNav = false } = {})
       if (!groups.has(key)) groups.set(key, { key, kind: r.kind, name: r.name, w: b.w, h: b.h, members: [] });
       groups.get(key).members.push({ sid: id, x: b.x, y: b.y, nodes: inside.map((n) => ({ ...n, x: n.x - b.x, y: n.y - b.y })) });
     }
-    perScreen[id] = { layout: { ...L, nodes }, parts: [] };
+    perScreen[id] = { layout: { ...L, nodes, ...(useShell ? { w: shell.w, h: shell.h } : {}) }, parts: [], shell: shellInfo && { ...shell, ...shellInfo } };
   }
   const named = {};
   for (const g of groups.values()) {
@@ -128,17 +166,17 @@ export function screenScript({ layout, frameName, pageName, x, y, lib, screenId,
 
 // Install the builder + library profile into the Figma file once (hidden
 // shared plugin data). Each screen then needs only a short call.
-export const ENGINE_VERSION = "1";
+export const ENGINE_VERSION = "2";
 export function installScript(lib) {
   return `figma.root.setSharedPluginData("trace", "builder", ${JSON.stringify(BUILDER)});
 figma.root.setSharedPluginData("trace", "builder_v", ${JSON.stringify(ENGINE_VERSION)});
 figma.root.setSharedPluginData("trace", "lib_${lib.id}", ${JSON.stringify(JSON.stringify({ components: lib.components, fills: lib.fills, texts: lib.texts }))});
 return { installed: true, bytes: ${BUILDER.length} };`;
 }
-export function screenCall({ layout, frameName, pageName, x, y, libId, screenId, notes, parts = [] }) {
-  const data = { layout: compact(layout), frameName, pageName, x, y, libId, screenId, notes: notes || "", parts };
+export function screenCall({ layout, frameName, pageName, x, y, libId, screenId, notes, parts = [], shell = null }) {
+  const data = { layout: compact(layout), frameName, pageName, x, y, libId, screenId, notes: notes || "", parts, shell };
   return `const src = figma.root.getSharedPluginData("trace", "builder");
-if (!src) throw new Error("Trace builder not installed in this file");
+if (!src || figma.root.getSharedPluginData("trace", "builder_v") !== ${JSON.stringify(ENGINE_VERSION)}) throw new Error("TRACE_NOT_INSTALLED: install the Trace builder in this file first (trace_figma_install), then run this again.");
 const AF = Object.getPrototypeOf(async function () {}).constructor;
 return await new AF("D", src + ";return await buildScreen(D);")(${JSON.stringify(data)});`;
 }
@@ -265,6 +303,70 @@ async function buildScreen(D) {
   frame.clipsContent = true;
   await fill(frame, L.bg);
   page.appendChild(frame);
+
+  // ---- design-system shell (left navigation + header): one component, an instance per screen
+  async function shellOverrides(inst, sh) {
+    if (sh.activeNav) {
+      // Nav items: the largest set of same-named sibling frames that each hold a label.
+      let items = [];
+      for (const p of inst.findAll((x) => "children" in x && x.children.length >= 3)) {
+        const byName = {};
+        for (const c of p.children) if (c.type !== "TEXT" && c.findOne && c.findOne((x) => x.type === "TEXT")) (byName[c.name] ||= []).push(c);
+        for (const g of Object.values(byName)) if (g.length > items.length) items = g;
+      }
+      const label = (it) => it.findOne((x) => x.type === "TEXT").characters.trim().toLowerCase();
+      const want = sh.activeNav.toLowerCase();
+      const target = items.find((it) => label(it) === want) || items.find((it) => want.startsWith(label(it)) || label(it).startsWith(want));
+      const painted = (it) => Array.isArray(it.fills) && it.fills.some((f) => f.visible !== false && f.opacity !== 0);
+      const current = items.find(painted);
+      if (target && current && target !== current) {
+        const fills = current.fills, strokes = current.strokes, styleId = current.fillStyleId;
+        current.fills = []; current.strokes = [];
+        if (typeof styleId === "string" && styleId) await target.setFillStyleIdAsync(styleId); else target.fills = fills;
+        target.strokes = strokes;
+      } else if (!target) report.failures.push("Shell: no nav item called \"" + sh.activeNav + "\"");
+    }
+    // Header texts that only differ in numbers ("Free prompts: 20 of 20" → "19 of 20").
+    const norm = (t) => t.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+    for (const want of sh.headerTexts || []) {
+      const n = norm(want);
+      if (!n) continue;
+      for (const t of inst.findAll((x) => x.type === "TEXT" && x.characters !== want && norm(x.characters) === n)) {
+        for (const f of t.getRangeAllFontNames(0, t.characters.length)) await figma.loadFontAsync(f);
+        t.characters = want;
+      }
+    }
+  }
+  if (D.shell) {
+    try {
+      const key = "shell_" + D.shell.nodeId;
+      let comp = null;
+      const sid = figma.root.getSharedPluginData("trace", key);
+      if (sid) { comp = await figma.getNodeByIdAsync(sid); if (comp && comp.type !== "COMPONENT") comp = null; }
+      if (!comp) {
+        const src = await figma.getNodeByIdAsync(D.shell.nodeId);
+        if (!src) throw new Error("the shell frame " + D.shell.nodeId + " isn't in this file (it's in file " + D.shell.fileKey + "). Build into that file, or publish the shell as a component in the library.");
+        if (src.type === "COMPONENT") comp = src;
+        else {
+          const pg = await partsPage();
+          const copy = src.clone();
+          pg.appendChild(copy);
+          copy.x = 0; copy.y = pg.children.reduce((m, c) => (c === copy ? m : Math.max(m, c.y + c.height + 120)), 0);
+          comp = figma.createComponentFromNode(copy);
+          comp.name = "App shell";
+        }
+        figma.root.setSharedPluginData("trace", key, comp.id);
+      }
+      const inst = comp.createInstance();
+      frame.insertChild(0, inst);
+      inst.x = 0; inst.y = 0;
+      inst.name = "App shell";
+      await shellOverrides(inst, D.shell);
+      count("App shell");
+    } catch (e) {
+      report.failures.push("Shell: " + e.message);
+    }
+  }
 
   // A sidebar still on the screen here means the library Navigation was asked
   // for (--library-nav): it replaces the sidebar and everything inside it.

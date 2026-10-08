@@ -9,6 +9,16 @@ export const DESIGN_SYSTEMS = [
     url: "https://www.figma.com/design/6s0ANB0VAVkU6lhkwIQ8qs/Genie-Material-Design",
     tokens: "Colour, text and effect styles",
     notes: "Current product library. Some components are still being updated, so more elements may come out detached.",
+    // The app shell (left navigation + header) every screen sits in. Screens get
+    // an instance of it; only the content area is rebuilt from the prototype.
+    shell: {
+      fileKey: "7izfBxBxGBR0YOvMfnXdlD",
+      nodeId: "40:2780",
+      url: "https://www.figma.com/design/7izfBxBxGBR0YOvMfnXdlD/Trace-demo-%E2%80%94-Create-campaign?node-id=40-2780",
+      w: 1496,
+      h: 1024,
+      content: { x: 257, y: 64 },
+    },
   },
   {
     id: "v2",
@@ -20,6 +30,9 @@ export const DESIGN_SYSTEMS = [
     notes: "New system with wide component coverage. V1-styled prototypes are rebuilt fully in V2.",
   },
 ];
+
+// Screens are captured and built at this size unless the designer says otherwise.
+export const FRAME = { w: 1496, h: 1024 };
 
 export const designSystem = (id) => DESIGN_SYSTEMS.find((d) => d.id === id) || null;
 

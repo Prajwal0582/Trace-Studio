@@ -9,6 +9,36 @@ reviews the result before it goes to developers. Never present the output as fin
 Use the `trace_*` MCP tools for everything in the browser. Use the Figma MCP server
 (`use_figma`, `search_design_system`, `get_screenshot`, …) for everything in Figma.
 
+## Fast path (the default)
+
+Be quick and frugal: every extra tool call and every line of code you write costs the designer time.
+When the designer just asks to translate a prototype ("trace this flow into <figma url>"):
+
+1. `trace_start { url, flowName, library }`. Screens are captured at **1496 × 1024**, the Figma frame size.
+2. Walk only the screens of the flow: `trace_act` to move, `trace_capture` once per screen.
+   A modal or popup is a `state` of the screen it opens over (it becomes an overlay, not a new screen).
+   **No extra states** (loading / empty / error) unless the designer asks for them.
+   Don't call `trace_inspect` or `trace_screenshot` unless a capture summary shows a problem.
+3. Build: `trace_figma_install` **once per Figma file**, then `trace_figma_script` **once**, and run
+   each returned `calls[].code` with `use_figma` unchanged, then `linksCode` once.
+   **Never write your own Figma code for whole screens**, and never paste the builder per screen.
+4. Look at **one** `get_screenshot` of the finished page at the end; fix only clear problems with
+   small targeted `use_figma` edits.
+
+What the build does for you, so you don't have to:
+- **App shell:** with V1, every screen is an instance of the design system's app shell (left
+  navigation + header, Figma node 40:2780 in the Trace demo file). Only the content area is rebuilt.
+  The active nav item and header texts (e.g. "Free prompts: 19 of 20") are set to match each
+  screen. The shell frame must be in the destination file.
+- **Library first:** buttons, chips and text fields become library components (closest variant).
+- **Missing components are made, once:** anything the library doesn't have is built from the
+  prototype; if its code component repeats (cards, rows), it is built once as a local component
+  and reused. Don't search the library element by element.
+- **Overlays:** dialogs become small frames opened with "Open overlay".
+
+Use the Studio review loop below only when the designer works in Trace Studio (a Studio project,
+or they asked to review first). Otherwise build straight away.
+
 ## 0. Projects started in Trace Studio
 
 Designers usually start in Trace Studio (`trace studio`): they pick the design system (V1 or V2),
@@ -47,10 +77,10 @@ they already did in Studio.
 
 - **Prototype URL** (e.g. `http://localhost:5173`). If the dev server isn't running, offer to start it.
 - **Flow** in plain language, e.g. "Sign in → dashboard → open a campaign → edit audience → save".
-- **States** worth capturing (default: loading, empty, error for every screen that fetches data).
+- **States** worth capturing (default: none beyond the flow's own screens; add loading / empty / error only when asked).
 - **Figma destination**: a figma.com file URL (screens are built on a page named `Trace / <flow>`).
   If none, offer to create a new file via Figma MCP, or produce `plan.json` for the Trace Importer plugin.
-- Viewport (default 1440×900).
+- Viewport (default 1496×1024, the Figma frame size).
 
 ## Trace Studio (the designer's review screen)
 
@@ -61,12 +91,12 @@ designer the link. Every `trace_capture` appears there live as a storyboard.
 - When the proposed flow is complete: `trace_studio_update { stage: "review" }`, then call
   `trace_wait` (or `trace_studio_feedback`). Act on every open request (capture the missing state/screen, remove,
   rename…) and close it with `resolveRequests` plus a short reply.
-- **Never build in Figma until `trace_studio_feedback` says `approved: true`.**
+- In a Studio review, **never build in Figma until `trace_studio_feedback` says `approved: true`.**
 - While building, report each screen: `trace_studio_update { stage: "building", screens: [{ id, build: { status, nodeId, summary, error } }] }`
   (`nodeId` is the `frame` id the build code returned; Studio uses it for "Open in Figma"),
   then `stage: "done"` with `figma.fileUrl`.
 
-## 2. Check the mapping before walking
+## 2. Check the mapping (only when there is a mapping file or the designer asks)
 
 1. `trace_start` with the URL and flow name.
 2. `trace_inspect` on the first screen. It reports matched components and **unmatched** elements.
@@ -85,7 +115,7 @@ For each step of the flow:
    or visible `text` over brittle CSS selectors. Use realistic sample data when filling forms.
 2. `trace_capture` with a short screen `name` ("Campaign list") and `state` ("default").
    Re-use the **same name** for other states of the same screen so they stack in one Figma column.
-3. Capture the relevant states for that screen:
+3. Only if the designer asked for states, capture them:
    - **loading**: `trace_mock_network` with `hang: true` on the data endpoint, then `trace_act reload`
      (or repeat the triggering action), capture `state: "loading"`, then `trace_clear_mocks`.
    - **empty**: mock the endpoint with an empty payload (`[]`, `{ "items": [] }`, match its real shape).
@@ -124,22 +154,20 @@ than once** (cards, list rows, panels) become **one local component** each (on t
 "Trace · Shared parts"), and every screen gets an **instance** with per-screen overrides: the
 active item, changed text, pieces hidden where that screen doesn't show them. Never redraw them
 per screen, and never detach the instances. `node bin/build-prep.mjs <runDir>` does this
-automatically (add `--library-nav` only if the library Navigation really matches). When building
-by hand with `trace_figma_script`, follow the same rule: build the part on the first screen, turn
-it into a component, and use instances of it on the rest.
+automatically, and so does `trace_figma_script` (with V1 the app shell replaces the prototype's own
+nav and header; `--no-shell` / `shell: false` rebuilds them from the prototype instead).
 
 **Modals and popups are overlays, not new screens.** When a dialog opens over a screen you already
 captured, capture it as a state of that screen; the build makes only the dialog and links the
 button that opens it with a Figma "Open overlay" interaction. Never rebuild the screen behind it.
 
 **With Figma MCP (preferred):**
-1. Load the Figma skill for `use_figma` first if your environment provides one (e.g. `figma-use`).
-2. For each screen (one or two at a time, in order), call `trace_figma_script` with the screen ids.
-   Pass the returned `code` **unchanged** to `use_figma` with the destination `fileKey`.
-   It is idempotent: re-running replaces that screen's frame.
-3. After each screen, check the result (Figma MCP `get_screenshot` on the returned frame id) against
-   `trace_screenshot` for the same screen. Fix obvious issues (wrong variant, missing text) with
-   targeted `use_figma` edits or by fixing the mapping and re-running that screen.
+1. `trace_figma_install` once per destination file; run its `code` with `use_figma`.
+2. `trace_figma_script` (all screens, or `screenIds`; `runId` for a past run). Run each `calls[].code`
+   unchanged with `use_figma` on the destination `fileKey`, then `linksCode`. Each call builds several
+   screens and returns one result per screen (`frame` id, instances, `failures`). Re-running replaces
+   those frames. If a call says TRACE_NOT_INSTALLED, run step 1 again.
+3. One `get_screenshot` of the page at the end. Fix clear problems with small targeted `use_figma` edits.
 4. Report the returned `failures` honestly.
 
 **Without Figma MCP:** tell the designer to open Figma → Plugins → Development → *Import plugin from
