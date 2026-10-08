@@ -62,7 +62,8 @@ designer the link. Every `trace_capture` appears there live as a storyboard.
   `trace_wait` (or `trace_studio_feedback`). Act on every open request (capture the missing state/screen, remove,
   rename…) and close it with `resolveRequests` plus a short reply.
 - **Never build in Figma until `trace_studio_feedback` says `approved: true`.**
-- While building, report each screen: `trace_studio_update { stage: "building", screens: [{ id, build: { status, summary, error } }] }`,
+- While building, report each screen: `trace_studio_update { stage: "building", screens: [{ id, build: { status, nodeId, summary, error } }] }`
+  (`nodeId` is the `frame` id the build code returned; Studio uses it for "Open in Figma"),
   then `stage: "done"` with `figma.fileUrl`.
 
 ## 2. Check the mapping before walking

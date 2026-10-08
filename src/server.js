@@ -512,6 +512,7 @@ export async function startServer({ cwd = process.cwd() } = {}) {
                 .object({
                   status: z.enum(["pending", "building", "built", "failed"]).optional(),
                   url: z.string().optional().describe("Link to the frame in Figma"),
+                  nodeId: z.string().optional().describe("Id of the built Figma frame (the `frame` returned by the trace_figma_script code). Studio links to it."),
                   image: z.string().optional().describe("Path to a PNG of the built Figma frame (for the Compare view)"),
                   summary: z.string().optional(),
                   error: z.string().optional(),

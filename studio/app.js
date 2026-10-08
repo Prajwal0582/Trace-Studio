@@ -303,6 +303,15 @@
     }
   }
 
+  // Link to a screen's built frame in Figma, else to the flow's page or file.
+  function figmaLink(s) {
+    const f = S.run?.figma || {};
+    if (s?.build?.url) return s.build.url;
+    const key = f.fileKey || f.fileUrl?.match(/figma\.com\/(?:design|file)\/([A-Za-z0-9]+)/)?.[1];
+    if (s?.build?.nodeId && key) return `https://www.figma.com/design/${key}/?node-id=${encodeURIComponent(s.build.nodeId.replace(/:/g, "-"))}`;
+    return f.pageUrl || f.fileUrl || null;
+  }
+
   // ---------------- home: projects + export history
   const dsName = (id) => (S.home?.designSystems || S.designSystems || []).find((d) => d.id === id)?.short || (id ? id.toUpperCase() : "—");
   const engineOn = () => !!S.engine?.connected;
@@ -1037,6 +1046,7 @@
           <button class="btn sm ${S.overlays ? "on" : ""}" data-act="overlays" aria-pressed="${S.overlays}">Outlines</button>
         </div>
         ${s.url ? `<a class="btn sm" href="${esc(s.url)}" target="_blank" rel="noopener">Open in prototype ↗</a>` : ""}
+        ${figmaLink(s) ? `<a class="btn sm" href="${esc(figmaLink(s))}" target="_blank" rel="noopener" title="${s.build?.url || s.build?.nodeId ? "This screen's frame in Figma" : "The Figma page for this flow"}">Open in Figma ↗</a>` : ""}
         <button class="btn sm icon" data-act="prev" aria-label="Previous screen" ${idx <= 0 ? "disabled" : ""}>‹</button>
         <span class="muted" style="font-variant-numeric:tabular-nums">${idx + 1} / ${order.length}</span>
         <button class="btn sm icon" data-act="next" aria-label="Next screen" ${idx >= order.length - 1 ? "disabled" : ""}>›</button>
@@ -1231,7 +1241,7 @@
             ${s.review ? `<span class="badge ${s.review.verdict === "ok" ? "ok" : "bad"}">${s.review.verdict === "ok" ? "Looks right" : "Needs fix"}</span>${s.review.note ? ` <span class="muted">${esc(s.review.note)}</span>` : ""}` : ""}</div>
           <div class="acts">${buildBadge(s.build?.status)}
             <a class="btn sm" href="#/run/${encodeURIComponent(S.runId)}/build/${encodeURIComponent(s.id)}">Compare</a>
-            ${s.build?.url ? `<a class="btn sm" href="${esc(s.build.url)}" target="_blank" rel="noopener">Figma ↗</a>` : ""}</div></div>`
+            ${s.build?.url || s.build?.nodeId ? `<a class="btn sm" href="${esc(figmaLink(s))}" target="_blank" rel="noopener">Figma ↗</a>` : ""}</div></div>`
         )
         .join("")}</div></div>`;
     const c = S.compareId && byId(S.compareId);
