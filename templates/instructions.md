@@ -107,11 +107,16 @@ review flags and state-coverage gaps. Tell the designer about any gaps you chose
 
 ## 5. Build in Figma
 
-**Match the prototype, not the library's idea of it.** The prototype is the source of truth for
-what each screen looks like. A library component replaces a prototype element only when it looks
-the same (compare `get_screenshot` of the instance with `trace_screenshot`). If the library's
-version is older or different (for example V1's Navigation vs the prototype's sidebar), build the
-element from the prototype and tell the designer in a review note.
+**Simple components come from the library, always.** Buttons, chips, text fields and other
+small controls are library instances (closest variant, prototype's label), even when the
+prototype's styling differs a little. Accept those small differences: the library is the target
+and is being updated. Don't redraw a control by hand because its colour or radius is slightly off.
+
+**Big composite regions come from the prototype.** For the left navigation, headers and other
+large regions, the prototype is the source of truth: a library component replaces one only when it
+looks the same (compare `get_screenshot` with `trace_screenshot`). If the library's version is
+older or different (for example V1's Navigation vs the prototype's sidebar), build it from the
+prototype and tell the designer in a review note.
 
 **Shared parts are built once and reused.** The left navigation, top header and any other region
 that repeats across screens become **one local component** each (on the page

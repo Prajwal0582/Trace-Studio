@@ -218,7 +218,7 @@ async function buildScreen(D) {
     if (!c) return null;
     const set = (sets[name] ||= await figma.importComponentSetByKeyAsync(c.set));
     const score = (v) => Object.entries(want).reduce((s, [k, val]) => s + (v.variantProperties && v.variantProperties[k] === val ? 1 : 0), 0);
-    let best = set.defaultVariant, bs = -1;
+    let best = set.defaultVariant, bs = 0; // nothing matches → the set's default variant
     for (const v of set.children) { const s = score(v); if (s > bs) { bs = s; best = v; } }
     return best;
   }
@@ -298,6 +298,16 @@ async function buildScreen(D) {
       inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
       inst.name = "Chip / " + n.text.slice(0, 30);
       count("Chip");
+    } else if (n.t === "input" && !n.multiline && lib.components["Text field"]) {
+      // Library first: small differences from the prototype's styling are accepted.
+      const v = await variant("Text field", {});
+      const inst = v.createInstance(); parent.appendChild(inst);
+      try { inst.resize(Math.max(1, n.w), inst.height); } catch (e) {}
+      inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
+      const label = n.value || n.placeholder;
+      if (label) await setLabel(inst, label);
+      inst.name = "Text field" + (label ? " / " + label.slice(0, 30) : "");
+      count("Text field");
     } else if (n.t === "input") {
       const r = await box(parent, n, n.multiline ? "Text area" : "Input");
       const label = n.value || n.placeholder;
