@@ -118,14 +118,19 @@ looks the same (compare `get_screenshot` with `trace_screenshot`). If the librar
 older or different (for example V1's Navigation vs the prototype's sidebar), build it from the
 prototype and tell the designer in a review note.
 
-**Shared parts are built once and reused.** The left navigation, top header and any other region
-that repeats across screens become **one local component** each (on the page
+**Shared parts are built once and reused.** Trace reads which code (React) component drew each
+part of a screen. The left navigation, top header and **any code component that appears more
+than once** (cards, list rows, panels) become **one local component** each (on the page
 "Trace · Shared parts"), and every screen gets an **instance** with per-screen overrides: the
 active item, changed text, pieces hidden where that screen doesn't show them. Never redraw them
 per screen, and never detach the instances. `node bin/build-prep.mjs <runDir>` does this
 automatically (add `--library-nav` only if the library Navigation really matches). When building
 by hand with `trace_figma_script`, follow the same rule: build the part on the first screen, turn
 it into a component, and use instances of it on the rest.
+
+**Modals and popups are overlays, not new screens.** When a dialog opens over a screen you already
+captured, capture it as a state of that screen; the build makes only the dialog and links the
+button that opens it with a Figma "Open overlay" interaction. Never rebuild the screen behind it.
 
 **With Figma MCP (preferred):**
 1. Load the Figma skill for `use_figma` first if your environment provides one (e.g. `figma-use`).

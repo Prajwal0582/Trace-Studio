@@ -7,6 +7,8 @@
 //   chip   – small rounded label                  → library Chip
 //   image  – img / svg / canvas                   → placeholder frame named after it
 //   nav    – the app's left sidebar               → one shared component, reused per screen
+//   group  – invisible outline of a code component or dialog (`dlg`; not drawn)
+// Nodes drawn by a named React component carry its name in `c`.
 // Coordinates are relative to the captured area (viewport, or full page).
 export function extractLayout({ fullPage }) {
   const vw = window.innerWidth;
@@ -38,6 +40,41 @@ export function extractLayout({ fullPage }) {
       grad: cs.backgroundImage && cs.backgroundImage.includes("gradient"),
     };
   };
+  // Which code (React) component drew this element: the outermost named
+  // component whose first DOM node is `el`. Lets Trace tell "the same component
+  // again" from "something that happens to look similar".
+  const fiberOf = (el) => {
+    for (const k in el) if (k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$")) return el[k];
+    return null;
+  };
+  const typeName = (t) => {
+    if (!t) return null;
+    if (typeof t === "function") return t.displayName || t.name || null;
+    if (typeof t === "object") return t.displayName || (t.render && (t.render.displayName || t.render.name)) || (t.type && typeName(t.type)) || null;
+    return null;
+  };
+  const firstHost = (fiber) => {
+    const stack = fiber.child ? [fiber.child] : [];
+    while (stack.length) {
+      const f = stack.pop();
+      if (f.stateNode instanceof Element) return f.stateNode;
+      if (f.sibling) stack.push(f.sibling);
+      if (f.child) stack.push(f.child);
+    }
+    return null;
+  };
+  // Wrappers and minified names say nothing about what the component is.
+  const GENERIC = /^(Styled\(|Mui\w*Root$|Box$|Stack$|Grid2?$|Container$|Fragment$|Insertion$|ForwardRef|Memo|Anonymous|Unstable_|Provider$|Consumer$|Router|Route$|Routes$|Suspense$|StrictMode$)/;
+  const codeName = (el) => {
+    let f = fiberOf(el);
+    if (!f) return null;
+    let name = null;
+    for (f = f.return; f && !(f.stateNode instanceof Element); f = f.return) {
+      const n = typeof f.type === "string" ? null : typeName(f.type);
+      if (n && /^[A-Z][A-Za-z0-9_]{2,}$/.test(n) && !GENERIC.test(n) && firstHost(f) === el) name = n;
+    }
+    return name;
+  };
   const label = (el) => (el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("title") || "").replace(/\s+/g, " ").trim();
 
   const walk = (el, clip) => {
@@ -52,12 +89,15 @@ export function extractLayout({ fullPage }) {
     }
     if (!onCanvas(b) && cs.position !== "fixed") return;
     const d = deco(cs);
+    const c = codeName(el);
+    const push = (n) => nodes.push(c && n.t !== "text" ? { ...n, c } : n);
+    // Dialogs (modals, confirm popups) are built on their own and shown as Figma overlays.
+    if (el.getAttribute("role") === "dialog" || el.getAttribute("role") === "alertdialog" || el.getAttribute("aria-modal") === "true" || (tag === "dialog" && el.open)) push({ t: "group", ...b, dlg: true });
 
     // left app sidebar
-    if ((tag === "aside" || tag === "nav" || el.getAttribute("role") === "navigation") && b.x <= 2 && b.w >= 160 && b.w <= 320 && b.h >= vh * 0.6) {
-      nodes.push({ t: "nav", ...b, bg: d.bg });
-      return;
-    }
+    // (its contents are recorded too, so it can be rebuilt as it really looks)
+    const isNav = (tag === "aside" || tag === "nav" || el.getAttribute("role") === "navigation") && b.x <= 2 && b.w >= 160 && b.w <= 320 && b.h >= vh * 0.6;
+    if (isNav) push({ t: "nav", ...b, ...d });
     const role = el.getAttribute("role");
     // Only button-sized controls; big clickable cards are rebuilt from their parts.
     const isButton = (tag === "button" || role === "button" || (tag === "a" && (d.bg || d.border))) && b.h <= 56 && b.w <= 420;
@@ -65,34 +105,36 @@ export function extractLayout({ fullPage }) {
       const txt = label(el);
       const hasIcon = !!el.querySelector("svg,img");
       if (txt || hasIcon) {
-        nodes.push({ t: "button", ...b, text: txt.slice(0, 60), icon: hasIcon, disabled: el.disabled || el.getAttribute("aria-disabled") === "true", ...d, f: font(cs) });
+        push({ t: "button", ...b, text: txt.slice(0, 60), icon: hasIcon, disabled: el.disabled || el.getAttribute("aria-disabled") === "true", ...d, f: font(cs) });
         return;
       }
     }
     if (tag === "input" && ["checkbox", "radio"].includes(el.type)) {
-      nodes.push({ t: "check", ...b, on: el.checked, kind: el.type });
+      push({ t: "check", ...b, on: el.checked, kind: el.type });
       return;
     }
     if (tag === "input" || tag === "textarea" || tag === "select") {
       const v = tag === "select" ? el.options[el.selectedIndex]?.text || "" : el.value;
-      nodes.push({ t: "input", ...b, value: v, placeholder: el.placeholder || "", focused: el === document.activeElement, multiline: tag === "textarea", ...d, f: font(cs) });
+      push({ t: "input", ...b, value: v, placeholder: el.placeholder || "", focused: el === document.activeElement, multiline: tag === "textarea", ...d, f: font(cs) });
       return;
     }
     if (tag === "img" || tag === "svg" || tag === "canvas" || tag === "video") {
-      nodes.push({ t: "image", ...b, kind: tag, name: el.getAttribute("alt") || el.getAttribute("aria-label") || (tag === "svg" ? "icon" : tag), fill: tag === "svg" ? rgba(cs.color) : null });
+      push({ t: "image", ...b, kind: tag, name: el.getAttribute("alt") || el.getAttribute("aria-label") || (tag === "svg" ? "icon" : tag), fill: tag === "svg" ? rgba(cs.color) : null });
       return;
     }
     // chip: small pill with its own text
     const txtAll = label(el);
     if (d.bg && b.h <= 30 && b.w <= 260 && d.r >= 8 && txtAll && txtAll.length <= 40 && el.children.length <= 3) {
-      nodes.push({ t: "chip", ...b, text: txtAll, ...d, f: font(cs) });
+      push({ t: "chip", ...b, text: txtAll, ...d, f: font(cs) });
       return;
     }
-    if (d.bg || d.border || d.shadow || d.bottom || d.right || d.grad) {
+    if (isNav) {
+      /* already recorded */
+    } else if (d.bg || d.border || d.shadow || d.bottom || d.right || d.grad) {
       if (!(b.w >= vw - 2 && b.h >= vh - 2 && !d.border && d.bg && d.bg[3] === 1 && nodes.length === 0 && false)) {
-        nodes.push({ t: "rect", ...b, ...d, fixed: cs.position === "fixed" });
+        push({ t: "rect", ...b, ...d, fixed: cs.position === "fixed" });
       }
-    }
+    } else if (c) push({ t: "group", ...b }); // invisible outline of a code component
     // own text runs
     for (const n of el.childNodes) {
       if (n.nodeType !== 3 || !n.textContent.trim()) continue;
@@ -101,7 +143,7 @@ export function extractLayout({ fullPage }) {
       const rr = range.getBoundingClientRect();
       const tb = boxOf(rr);
       if (!onCanvas(tb)) continue;
-      nodes.push({ t: "text", ...tb, text: n.textContent.replace(/\s+/g, " ").trim(), f: font(cs) });
+      push({ t: "text", ...tb, text: n.textContent.replace(/\s+/g, " ").trim(), f: font(cs) });
     }
     for (const c of el.children) walk(c, clip);
   };

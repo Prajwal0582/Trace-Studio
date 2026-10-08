@@ -15,6 +15,7 @@ const log = (msg) => console.log(`  [${time()}] ${msg}`);
 
 const branch = git("rev-parse", "--abbrev-ref", "HEAD");
 let child = null;
+let fetchFailed = false;
 
 function start() {
   child = spawn(process.execPath, [path.join(ROOT, "bin/trace.js"), "studio", ...process.argv.slice(2)], { cwd: ROOT, stdio: "inherit" });
@@ -36,8 +37,13 @@ function restart() {
 function check() {
   try {
     git("fetch", "--quiet", "origin", branch);
-  } catch {
-    return; // offline: try again next time
+    if (fetchFailed) log("Reaching GitHub again.");
+    fetchFailed = false;
+  } catch (e) {
+    // Say it once (not every 30s): offline, signed out of GitHub, or the branch is gone.
+    if (!fetchFailed) log(`Can't check GitHub for updates: ${String(e.stderr || e.message).trim().split("\n")[0]}. Will keep trying.`);
+    fetchFailed = true;
+    return;
   }
   const local = git("rev-parse", "HEAD");
   const remote = git("rev-parse", "FETCH_HEAD");
@@ -62,6 +68,8 @@ start();
 if (branch === "HEAD") log("Not on a branch (detached HEAD), so live updates are off. Run: git switch <branch>");
 else {
   console.log(`  ▲ Trace Studio (live) — following origin/${branch}, checking every ${EVERY / 1000}s. Ctrl+C to stop.`);
+  log(`On ${git("log", "-1", "--format=%h %s")}`);
+  check();
   setInterval(check, EVERY);
 }
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => ((stopping = true), child?.kill(), process.exit(0)));

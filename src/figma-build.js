@@ -36,33 +36,46 @@ function compact(layout) {
 // prototype shows, and place an instance on every screen with per-screen
 // overrides (text, colours, pieces hidden on screens that don't have them).
 const contains = (b, n) => n.x >= b.x - 1 && n.y >= b.y - 1 && n.x + n.w <= b.x + b.w + 1 && n.y + n.h <= b.y + b.h + 1;
-const isSidebar = (L, n) => n.t === "rect" && n.x <= 2 && n.w >= 160 && n.w <= 320 && n.h >= L.h * 0.6 && n.bg && n.bg[0] + n.bg[1] + n.bg[2] < 330;
+const isSidebar = (L, n) => (n.t === "nav" || n.t === "rect") && n.x <= 2 && n.w >= 160 && n.w <= 320 && n.h >= L.h * 0.6 && (n.t === "nav" || (n.bg && n.bg[0] + n.bg[1] + n.bg[2] < 330));
 // Same piece on two screens: same kind, same place (text may change length).
 const samePiece = (a, b) =>
   a.t === b.t && Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 3 && Math.abs(a.h - b.h) <= 4 && (a.t === "text" || Math.abs(a.w - b.w) <= 3);
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-function regionsOf(L, { libraryNav }) {
+const isBlock = (n) => n.t === "rect" || n.t === "group" || n.t === "nav";
+// Big wrappers (pages, layouts) repeat on every screen but aren't components.
+const smallEnough = (L, n) => n.w * n.h <= L.w * L.h * 0.4;
+
+function regionsOf(L, { libraryNav, repeated }) {
   const out = [];
   const sb = libraryNav ? null : L.nodes.find((n) => isSidebar(L, n));
   if (sb) out.push({ kind: "nav", name: "Left navigation", box: sb });
   const left = sb ? sb.x + sb.w : 0;
   const hd = L.nodes.find((n) => n.t === "rect" && n.y <= 2 && n.h >= 40 && n.h <= 120 && n.x >= left - 2 && n.w >= (L.w - left) * 0.8);
   if (hd) out.push({ kind: "header", name: "Top header", box: hd });
+  // Any other code component that repeats in the flow (cards, rows, panels…),
+  // biggest first so a component inside another one stays part of it.
+  const taken = (n) => out.some((r) => contains(r.box, n));
+  const candidates = L.nodes.filter((n) => isBlock(n) && n.c && repeated.has(n.c) && smallEnough(L, n)).sort((a, b) => b.w * b.h - a.w * a.h);
+  for (const n of candidates) if (!taken(n)) out.push({ kind: "c:" + n.c, name: n.c, box: n });
   return out;
 }
 
 // screens: [{ id, layout }] in build order. Returns, per screen, the layout
 // without the shared regions and the instances to place instead.
 export function sharedParts(screens, { pageName = "", libraryNav = false } = {}) {
+  // Code components drawn more than once anywhere in the flow.
+  const seen = {};
+  for (const { layout: L } of screens) for (const n of L.nodes) if (isBlock(n) && n.c && smallEnough(L, n)) seen[n.c] = (seen[n.c] || 0) + 1;
+  const repeated = new Set(Object.keys(seen).filter((c) => seen[c] > 1));
   const groups = new Map();
   const perScreen = {};
   for (const { id, layout: L } of screens) {
     let nodes = L.nodes.slice();
-    for (const r of regionsOf(L, { libraryNav })) {
+    for (const r of regionsOf(L, { libraryNav, repeated })) {
       const b = r.box;
       const inside = nodes.filter((n) => contains(b, n));
-      if (!inside.length) continue;
+      if (!inside.includes(b)) continue; // already part of a bigger shared part
       nodes = nodes.filter((n) => !inside.includes(n));
       const key = `${r.kind}:${Math.round(b.w / 8)}x${Math.round(b.h / 8)}`;
       if (!groups.has(key)) groups.set(key, { key, kind: r.kind, name: r.name, w: b.w, h: b.h, members: [] });
@@ -84,7 +97,7 @@ export function sharedParts(screens, { pageName = "", libraryNav = false } = {})
     }
     named[g.kind] = (named[g.kind] || 0) + 1;
     const name = named[g.kind] > 1 ? `${g.name} ${named[g.kind]}` : g.name;
-    const nodes = compact({ w: g.w, h: g.h, nodes: union }).n;
+    const nodes = compact({ w: g.w, h: g.h, nodes: union.map((n) => (n.t === "nav" ? { ...n, t: "rect" } : n)) }).n;
     const def = {
       id: crypto.createHash("sha1").update(`${pageName}|${g.key}`).digest("hex").slice(0, 12),
       name,
@@ -253,10 +266,12 @@ async function buildScreen(D) {
   await fill(frame, L.bg);
   page.appendChild(frame);
 
-  // Sidebar drawn as a plain dark panel → library Navigation; drop what's inside it.
+  // A sidebar still on the screen here means the library Navigation was asked
+  // for (--library-nav): it replaces the sidebar and everything inside it.
+  // Otherwise sidebars arrive as a shared part (see sharedParts) and are gone.
   let list = L.n.slice();
-  const sb = list.find((n) => n.t === "rect" && n.x <= 2 && n.w >= 160 && n.w <= 320 && n.h >= L.h * 0.6 && n.bg && n.bg[0] + n.bg[1] + n.bg[2] < 330);
-  if (sb && !list.some((n) => n.t === "nav")) {
+  const sb = list.find((n) => n.t === "nav") || list.find((n) => n.t === "rect" && n.x <= 2 && n.w >= 160 && n.w <= 320 && n.h >= L.h * 0.6 && n.bg && n.bg[0] + n.bg[1] + n.bg[2] < 330);
+  if (sb) {
     list = list.filter((n) => n === sb || !(n.x >= sb.x && n.y >= sb.y && n.x + n.w <= sb.x + sb.w + 1 && n.y + n.h <= sb.y + sb.h + 1));
     sb.t = "nav";
   }
@@ -436,7 +451,7 @@ async function linkFrames(D) {
     const src = (want && from.findOne((n) => n.type === "INSTANCE" && n.name.toLowerCase().includes(want.toLowerCase()))) || from;
     try {
       const keep = (src.reactions || []).filter((r) => !(r.actions || []).some((a) => a.destinationId === to.id));
-      await src.setReactionsAsync([...keep, { trigger: { type: "ON_CLICK" }, actions: [{ type: "NODE", destinationId: to.id, navigation: "NAVIGATE", transition: { type: "DISSOLVE", easing: { type: "EASE_OUT" }, duration: 0.25 }, preserveScrollPosition: false }] }]);
+      await src.setReactionsAsync([...keep, { trigger: { type: "ON_CLICK" }, actions: [{ type: "NODE", destinationId: to.id, navigation: l.overlay ? "OVERLAY" : "NAVIGATE", transition: { type: "DISSOLVE", easing: { type: "EASE_OUT" }, duration: 0.25 }, preserveScrollPosition: false }] }]);
     } catch (e) { failures.push(l.label + ": " + e.message); }
     // labelled arrow on the canvas
     const sameCol = Math.abs(from.x - to.x) < 10;

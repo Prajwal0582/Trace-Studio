@@ -1173,7 +1173,9 @@
   function repeats(rows) {
     const m = new Map();
     for (const r of rows) {
-      const key = `${elName(r.e)}|${r.e.box ? `${r.e.box.x},${r.e.box.w}x${r.e.box.h}` : r.e.id}`;
+      // Same code component with the same label = one element, wherever it sits
+      // (a backdrop or a shifted layout doesn't make it a different one).
+      const key = `${r.e.role || ""}|${elName(r.e)}`;
       if (!m.has(key)) m.set(key, { ...r, all: [] });
       m.get(key).all.push(r);
     }
