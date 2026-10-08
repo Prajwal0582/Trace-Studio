@@ -22,6 +22,8 @@ const CONNECT = {
   mcpJson: JSON.stringify({ mcpServers: { trace: { command: "node", args: [BIN, "serve"] } } }, null, 2),
   prompt: "Use Trace and stay connected to Trace Studio: call trace_wait in a loop and do whatever it returns.",
 };
+// Changes every time Studio starts; open tabs reload when it does (studio:live).
+const BOOT = Date.now().toString(36);
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".json": "application/json" };
 
 const readBody = (req) =>
@@ -200,7 +202,7 @@ export function startStudio(opts = {}, legacy = {}) {
         }
         if (p === "/api/events") {
           res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
-          res.write("retry: 2000\n\n");
+          res.write(`retry: 2000\nevent: hello\ndata: ${JSON.stringify({ boot: BOOT })}\n\n`);
           clients.add(res);
           const ping = setInterval(() => res.write(": ping\n\n"), 25000);
           req.on("close", () => {

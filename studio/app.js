@@ -83,6 +83,12 @@
   }
   function connect() {
     const es = new EventSource("/api/events");
+    // Studio restarted with new code (e.g. npm run studio:live pulled an update): reload.
+    es.addEventListener("hello", (ev) => {
+      const { boot } = JSON.parse(ev.data || "{}");
+      if (S.boot && boot && boot !== S.boot) location.reload();
+      S.boot ||= boot;
+    });
     es.addEventListener("change", async (ev) => {
       const { kind, id } = JSON.parse(ev.data || "{}");
       const before = S.project?.status;

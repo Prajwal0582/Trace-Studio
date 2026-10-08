@@ -95,6 +95,10 @@ The designer's review screen, served locally at `http://127.0.0.1:4747`. The age
 
 Reopen a past run with `trace studio .trace/<session>`.
 
+**Stay up to date automatically:** `npm run studio:live` runs Studio and, every 30 seconds, pulls new
+commits on your current branch from GitHub, restarts Studio and reloads open tabs. Use it when
+someone (or Claude in the cloud) is pushing changes to the branch you're on.
+
 ## What the agent does
 
 1. **Brief**: prototype URL, the flow in plain words, the states you want, the Figma file.
