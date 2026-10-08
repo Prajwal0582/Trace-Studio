@@ -54,7 +54,7 @@ function engineStatus(root) {
         alive = false;
       }
     }
-    return alive ? { connected: true, client: e.client, working: e.working, listening: !!e.listening, since: e.startedAt } : { connected: false, lastSeen: e.lastSeen };
+    return alive ? { connected: true, client: e.client, working: e.working, listening: !!e.listening, since: e.startedAt, lastTool: e.lastTool || null, lastActive: e.lastActive || null } : { connected: false, lastSeen: e.lastSeen };
   } catch {
     return { connected: false };
   }
@@ -102,6 +102,8 @@ export function startStudio(opts = {}, legacy = {}) {
   // …and changes written by other processes (agent, CLI). Debounced per file.
   const timers = new Map();
   let watcher = null;
+  let closed = false;
+  const watch = () => {
   try {
     watcher = fs.watch(root, { recursive: true }, (_, file) => {
       if (!file || !/(run|project|engine)\.json$/.test(file)) return;
@@ -125,9 +127,19 @@ export function startStudio(opts = {}, legacy = {}) {
         }, 120)
       );
     });
+    // A folder deleted while being watched (e.g. "Delete project" removing its
+    // runs) makes the watcher error out; start a fresh one instead of crashing.
+    watcher.on("error", () => {
+      try {
+        watcher.close();
+      } catch {}
+      if (!closed) setTimeout(watch, 500);
+    });
   } catch {
     /* recursive watch unsupported: in-process updates still work */
   }
+  };
+  watch();
 
   const getRun = (id) => {
     if (activeRun && (!id || id === activeRun.data.id)) return activeRun;
@@ -191,9 +203,12 @@ export function startStudio(opts = {}, legacy = {}) {
       if (req.method === "GET") {
         if (p === "/api/home") {
           const allRuns = listRuns();
-          const allProjects = projects.list();
+          // "+ New project" saves a draft straight away; one nobody filled in isn't a project yet.
+          const blank = (p) => p.status === "draft" && !p.designSystem && !p.repo?.url && !p.figma?.fileUrl;
+          const allProjects = projects.list().filter((p) => !blank(p));
           return send(res, 200, { engine: engineStatus(root), active: activeRun?.data.id || null, projects: allProjects, runs: allRuns, exports: exportsList(allRuns, allProjects), designSystems: DESIGN_SYSTEMS, connect: CONNECT });
         }
+        if (p === "/api/engine") return send(res, 200, engineStatus(root));
         if (p === "/api/runs") return send(res, 200, { active: activeRun?.data.id || null, runs: listRuns() });
         if (p === "/api/run") return send(res, 200, getRun(url.searchParams.get("id")).data);
         if (p === "/api/project") {
@@ -311,6 +326,7 @@ export function startStudio(opts = {}, legacy = {}) {
           root,
           close: () => {
             activeRun?.off("change", onActive);
+            closed = true;
             watcher?.close();
             for (const c of clients) c.end();
             server.close();

@@ -81,6 +81,17 @@ export async function startServer({ cwd = process.cwd() } = {}) {
     }
   });
   const server = new McpServer({ name: "trace", version: pkg.version }, { instructions: INSTRUCTIONS });
+  // Record the last thing the AI did, so Studio can show it's working (trace_wait is listening, not working).
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = (name, def, handler) =>
+    registerTool(name, def, async (...args) => {
+      if (name !== "trace_wait") {
+        engine.lastTool = name;
+        engine.lastActive = new Date().toISOString();
+        beat();
+      }
+      return handler(...args);
+    });
 
   // ---------------------------------------------------------------- prompts
   server.registerPrompt(

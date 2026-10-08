@@ -105,8 +105,8 @@
       if (S.route === "project" && before && S.project?.status !== before) announce(statusText(S.project).title);
       if (S.route !== "new") render();
     });
-    es.onopen = () => $("live").classList.remove("off");
-    es.onerror = () => $("live").classList.add("off");
+    es.onopen = () => ($("live").hidden = true);
+    es.onerror = () => ($("live").hidden = false);
   }
   function toast(msg) {
     const t = $("toast");
@@ -224,6 +224,7 @@
   // ------------------------------------------------------------ render
   function render() {
     const inRun = S.route === "run" && !!S.run;
+    renderEngine();
     $("tabs").hidden = $("runActions").hidden = $("stepper").hidden = !inRun;
     $("runHead").hidden = !(inRun || (S.route === "project" && S.project));
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
@@ -263,17 +264,19 @@
         : ""
     }`;
     $("runMeta").innerHTML = [
-      p.library && `<span class="chip">Library <b>${esc(p.library)}</b></span>`,
-      p.scenario && `<span class="chip">Scenario <b>${esc(p.scenario)}</b></span>`,
-      p.source && `<span class="chip" title="${esc(p.source)}">Prototype <b>${esc(p.source.replace(/^https?:\/\/(www\.)?/, ""))}</b></span>`,
-      r.figma?.fileUrl && `<a class="chip" href="${esc(r.figma.fileUrl)}" target="_blank" rel="noopener">Figma file ↗</a>`,
-    ].filter(Boolean).join("");
+      p.library && `<span title="Design system">${esc(p.library)}</span>`,
+      p.scenario && `<span title="Prototype scenario">${esc(p.scenario)}</span>`,
+      p.source && `<span title="Prototype: ${esc(p.source)}">${esc(p.source.replace(/^https?:\/\/(www\.)?/, ""))}</span>`,
+      r.figma?.fileUrl && `<a href="${esc(r.figma.fileUrl)}" target="_blank" rel="noopener">Figma file ↗</a>`,
+    ].filter(Boolean).join('<span class="sep" aria-hidden="true">·</span>');
 
     const stage = r.stage === "approved" ? "building" : r.stage;
     const idx = STAGES.findIndex((s) => s.id === stage);
-    $("stepper").innerHTML = STAGES.map(
-      (s, i) => `<li class="${i < idx ? "done" : i === idx ? "current" : ""}" ${i === idx ? 'aria-current="step"' : ""}><span class="n" aria-hidden="true">${i < idx ? "✓" : i + 1}</span>${s.label}</li>`
-    ).join("");
+    // One pill that says where the flow is, instead of a stepper that repeats the tabs.
+    const STAGE_TEXT = { understanding: "Trace is mapping the flow", review: "Your review", building: "Building in Figma", done: "Built in Figma" };
+    $("stepper").innerHTML = `<li class="stage-pill ${stage}" title="${STAGES.map((s, i) => `${i + 1}. ${s.label}`).join("  ")}"><span class="n" aria-hidden="true">${stage === "done" ? "✓" : idx + 1}</span>${
+      stage === "done" ? "" : `<span class="of">Step ${idx + 1} of ${STAGES.length} ·</span> `
+    }${STAGE_TEXT[stage] || STAGES[idx]?.label || ""}</li>`;
 
     for (const a of document.querySelectorAll(".tabs a")) {
       a.href = `#/run/${encodeURIComponent(S.runId)}/${a.dataset.tab}`;
@@ -294,12 +297,21 @@
     const btn = $("approveBtn");
     if (["approved", "building", "done"].includes(r.stage)) {
       btn.disabled = true;
+      $("approveWhy").textContent = "";
       btn.textContent = r.stage === "done" ? "Built ✓" : "Approved ✓";
       btn.title = "";
     } else {
       const blockers = unanswered().length + openReqs().length;
       btn.textContent = "Approve flow";
       btn.disabled = r.stage !== "review" || blockers > 0 || !live().length;
+      $("approveWhy").classList.toggle("linklike", unanswered().length > 0);
+      $("approveWhy").textContent = !btn.disabled
+        ? ""
+        : r.stage === "understanding"
+          ? "Waiting for Trace to finish mapping the flow"
+          : blockers
+            ? `${unanswered().length ? `${unanswered().length} question${unanswered().length > 1 ? "s" : ""} to answer` : ""}${unanswered().length && openReqs().length ? " · " : ""}${openReqs().length ? `${openReqs().length} change${openReqs().length > 1 ? "s" : ""} in progress` : ""}`
+            : "No screens yet";
       btn.title =
         r.stage === "understanding"
           ? "Trace is still mapping the flow"
@@ -325,6 +337,28 @@
     pct == null
       ? `<div class="progress indeterminate" role="progressbar" aria-label="${esc(label)}" aria-valuetext="In progress"><div></div></div>`
       : `<div class="progress" role="progressbar" aria-label="${esc(label)}" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div style="width:${pct}%"></div></div>`;
+  // What the AI tool is doing right now, in words (shown in the run's tab bar).
+  const ACTIVITY = {
+    trace_start: "opening the prototype", trace_act: "clicking through the prototype", trace_capture: "capturing a screen",
+    trace_inspect: "reading a screen", trace_screenshot: "checking a screen", trace_mock_network: "setting up a state",
+    trace_clear_mocks: "setting up a state", trace_mapping: "matching components", trace_build_plan: "planning the build",
+    trace_figma_script: "building in Figma", trace_studio_update: "updating Studio", trace_studio_feedback: "reading your feedback",
+    trace_studio_open: "opening Studio", trace_project_next: "picking up the project", trace_project_update: "working on the project",
+    trace_end: "finishing up",
+  };
+  function engineStatusHtml() {
+    const e = S.engine;
+    if (!e?.connected) return `<span class="engine-chip off" title="Start your AI tool with Trace connected, then ask it to stay connected to Trace Studio."><span class="dot" aria-hidden="true"></span>No AI tool connected</span>`;
+    const who = esc(e.client || "AI tool");
+    const ago = e.lastActive ? Date.now() - new Date(e.lastActive).getTime() : Infinity;
+    if (e.listening) return `<span class="engine-chip on"><span class="dot" aria-hidden="true"></span>${who} · waiting for you</span>`;
+    if (ago < 30000) return `<span class="engine-chip on busy"><span class="spinner sm" aria-hidden="true"></span>${who} · ${esc(ACTIVITY[e.lastTool] || "working")}</span>`;
+    return `<span class="engine-chip idle" title="Connected, but not doing anything. Ask it to keep working or to stay connected to Trace Studio."><span class="dot" aria-hidden="true"></span>${who} · idle${e.lastActive ? ` since ${esc(timeAgo(e.lastActive))}` : ""}</span>`;
+  }
+  const renderEngine = () => {
+    const el = $("engineStatus");
+    if (el) el.innerHTML = engineStatusHtml();
+  };
   const engineChip = () =>
     engineOn()
       ? `<span class="engine-chip on"><span class="dot" aria-hidden="true"></span>AI tool ${S.engine.listening ? "listening" : "connected"}${S.engine.client ? ` · ${esc(S.engine.client)}` : ""}</span>`
@@ -334,8 +368,9 @@
     return `<ol class="steps-list">
       <li><b>Once:</b> add Trace to your AI tool. Claude Code (works in every folder):
         <div class="copy-row"><code id="connectCmd">${esc(c.claude || "")}</code><button class="btn sm" data-act="copy" data-target="connectCmd">Copy</button></div>
-        <span class="muted">Cursor, VS Code, Windsurf, Codex or Claude Desktop: run <code>trace init</code> in your project folder, or add this MCP server to the tool's config:</span>
-        <div class="copy-row"><code id="connectJson">${esc(c.mcpJson || "")}</code><button class="btn sm" data-act="copy" data-target="connectJson">Copy</button></div></li>
+        <details class="other-tools"><summary>Using Cursor, VS Code, Windsurf, Codex or Claude Desktop?</summary>
+          <p class="muted">Run <code>trace init</code> in your project folder, or add this MCP server to the tool's config:</p>
+          <div class="copy-row"><code id="connectJson">${esc(c.mcpJson || "")}</code><button class="btn sm" data-act="copy" data-target="connectJson">Copy</button></div></details></li>
       <li>Make sure the <b>Figma</b> connector is signed in in that tool.</li>
       <li>Start a <b>new</b> session in that tool and send this once. It then keeps listening to Studio, so everything you do here reaches it:
         <div class="copy-row"><code id="listenPrompt">${esc(c.prompt || "")}</code><button class="btn sm" data-act="copy" data-target="listenPrompt">Copy</button></div></li></ol>`;
@@ -369,7 +404,7 @@
           <div class="body">
             <div class="name">${esc(p.name)}</div>
             <div class="row">${p.paused ? '<span class="badge warn">Paused</span>' : ""}<span class="badge ${st.badge}">${esc(st.title)}</span></div>
-            <div class="row"><span class="chip">${esc(dsName(p.designSystem))}</span>${p.repo.url ? `<span class="chip" title="${esc(p.repo.url)}">${esc(p.repo.url.replace(/^https?:\/\/(www\.)?github\.com\//, ""))}</span>` : ""}</div>
+            <div class="row">${p.designSystem ? `<span class="chip">${esc(dsName(p.designSystem))}</span>` : ""}${p.repo.url ? `<span class="chip" title="${esc(p.repo.url)}">${esc(p.repo.url.replace(/^https?:\/\/(www\.)?github\.com\//, ""))}</span>` : ""}</div>
             <div class="muted" style="font-size:12px">${runs.length ? `${runs.length} flow${runs.length > 1 ? "s" : ""} · ` : ""}Updated ${esc(timeAgo(p.updatedAt))}</div>
           </div></a>`;
       })
@@ -389,7 +424,7 @@
       .join("");
     $("view-home").innerHTML = `<div class="page">
       <div class="home-head"><div><h2 tabindex="-1">Trace Studio</h2><p class="lead">Turn a coded prototype into editable Figma screens built from your design system.</p></div>
-        <div class="home-actions">${engineChip()}<a class="btn primary lg" href="#/new">+ New project</a></div></div>
+        <div class="home-actions"><a class="btn primary lg" href="#/new">+ New project</a></div></div>
       <nav class="subtabs" aria-label="Home sections">
         <a href="#/" ${tab === "projects" ? 'aria-current="page"' : ""}>Projects <span class="pill">${projects.length || ""}</span></a>
         <a href="#/exports" ${tab === "exports" ? 'aria-current="page"' : ""}>Export history <span class="pill">${h.exports.length || ""}</span></a>
@@ -397,7 +432,7 @@
       ${
         tab === "projects"
           ? `${cards ? `<div class="runs-grid">${cards}</div>` : `<div class="empty-state"><div class="big">No projects yet</div><p>Start with your design system, your prototype's repository and the Figma file to build into.</p><a class="btn primary" href="#/new">+ New project</a></div>`}
-             ${loose.length ? `<h3 class="section-title">Runs started from an AI tool</h3><div class="runs-grid">${loose.map(looseCard).join("")}</div>` : ""}`
+             ${loose.length ? `<h3 class="section-title">Flows traced from your AI tool <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· not part of a project</span></h3><div class="runs-grid">${loose.map(looseCard).join("")}</div>` : ""}`
           : exportsRows
             ? `<div class="table-wrap"><table class="table"><caption class="sr-only">Everything Trace has built in Figma</caption>
                 <thead><tr><th scope="col">When</th><th scope="col">Flow</th><th scope="col">Project</th><th scope="col">Design system</th><th scope="col">Screens</th><th scope="col">Figma page</th><th scope="col">Status</th></tr></thead>
@@ -546,16 +581,16 @@
     $("crumbs").innerHTML = `<a href="#/">Projects</a>`;
     $("runTitle").textContent = p.name;
     $("runMeta").innerHTML = [
-      ds && `<span class="chip">Design system <b>${esc(ds.short)}</b></span>`,
-      p.repo.url && `<span class="chip" title="${esc(p.repo.url)}">Prototype <b>${esc(p.repo.url.replace(/^https?:\/\/(www\.)?/, ""))}</b>${p.repo.branch ? ` · ${esc(p.repo.branch)}` : ""}</span>`,
-      p.figma.fileUrl && `<a class="chip" href="${esc(p.figma.fileUrl)}" target="_blank" rel="noopener">Figma file${p.figma.verified ? " ✓" : ""} ↗</a>`,
-    ].filter(Boolean).join("");
+      ds && `<span title="Design system">${esc(ds.short)}</span>`,
+      p.repo.url && `<span title="Prototype: ${esc(p.repo.url)}">${esc(p.repo.url.replace(/^https?:\/\/(www\.)?/, ""))}${p.repo.branch ? ` (${esc(p.repo.branch)})` : ""}</span>`,
+      p.figma.fileUrl && `<a href="${esc(p.figma.fileUrl)}" target="_blank" rel="noopener">Figma file${p.figma.verified ? " ✓" : ""} ↗</a>`,
+    ].filter(Boolean).join('<span class="sep" aria-hidden="true">·</span>');
     const tab = S.projTab === "history" ? "history" : "flows";
     const actions = `<div class="proj-actions">
-      ${p.status === "draft" ? "" : `<button class="btn sm" data-act="proj-pause" aria-pressed="${!!p.paused}">${p.paused ? "▶ Resume" : "⏸ Pause"}</button>`}
-      <button class="btn sm danger" data-act="proj-delete">Delete project</button></div>`;
+      ${p.status === "draft" ? "" : `<button class="btn sm" data-act="proj-pause" aria-pressed="${!!p.paused}">${p.paused ? "Resume" : "Pause"}</button>`}
+      <button class="btn sm ghost danger" data-act="proj-delete">Delete…</button></div>`;
     const pausedBanner = p.paused
-      ? `<div class="panel warn compact" role="status"><b>Paused.</b> Trace won't start new work on this project. Anything already captured stays here. <button class="btn sm" data-act="proj-pause">▶ Resume</button></div>`
+      ? `<div class="panel warn compact" role="status"><b>Paused.</b> Trace won't start new work on this project. Anything already captured stays here. <button class="btn sm" data-act="proj-pause">Resume</button></div>`
       : "";
     const tabs = `<nav class="subtabs" aria-label="Project sections">
       <a href="#/project/${encodeURIComponent(p.id)}" ${tab === "flows" ? 'aria-current="page"' : ""}>Flows</a>
@@ -745,7 +780,7 @@
         const n = S.projectRuns.length;
         $("deleteBody").innerHTML = `<p><b>${esc(p.name)}</b> will be removed from Trace Studio${n ? `, along with its <b>${n} captured flow${n > 1 ? "s" : ""}</b> (screenshots and decisions)` : ""}.</p>
           <p class="muted">Pages Trace already made in Figma stay in your Figma file. This can't be undone.</p>
-          <label class="check"><input type="checkbox" id="keepRuns" /> Keep the captured flows (they move to "Runs started from an AI tool")</label>`;
+          <label class="check"><input type="checkbox" id="keepRuns" /> Keep the captured flows (they move to "Flows traced from your AI tool")</label>`;
         $("deleteDialog").returnValue = "";
         $("deleteDialog").showModal();
         return;
@@ -792,7 +827,8 @@
     const typingIn = (el) => el && el.contains(document.activeElement) && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
     renderProgress();
     renderBoard();
-    $("todo").hidden = !S.todoOpen || !!S.screenId;
+    const td = todos();
+    $("todo").hidden = !S.todoOpen || !!S.screenId || (td.count === 0 && !td.waiting.length);
     if (!$("todo").hidden && !typingIn($("todo"))) renderTodo();
     if (typingIn($("detail"))) S.pending = true;
     else renderDetail();
@@ -970,7 +1006,7 @@
             (q) => `<div class="todo-item q" data-q="${q.id}">
               ${q.screenId && byId(q.screenId) ? `<div class="where"><button class="linklike" data-act="open" data-id="${q.screenId}">${esc(title(byId(q.screenId)))}</button></div>` : ""}
               <div class="t">${esc(q.text)}</div>
-              <div class="opts">${(q.options.length ? q.options : ["Yes", "No"]).map((o) => `<button class="btn sm" data-act="answer" data-answer="${esc(o)}">${esc(o)}</button>`).join("")}
+              <div class="opts">${(q.options?.length ? q.options : ["Yes", "No"]).map((o) => `<button class="btn sm" data-act="answer" data-answer="${esc(o)}">${esc(o)}</button>`).join("")}
               <button class="btn sm ghost" data-act="answer-free">Other…</button></div></div>`
           )
           .join("")
@@ -1394,9 +1430,13 @@
   });
 
   document.addEventListener("click", async (ev) => {
-    const t = ev.target.closest("[data-act], .card, #approveBtn, #todoBtn, [data-zoom]");
+    const t = ev.target.closest("[data-act], .card, #approveBtn, #approveWhy, #todoBtn, [data-zoom]");
     if (!t) return;
     if (t.id === "approveBtn") return openApprove();
+    if (t.id === "approveWhy") {
+      S.todoOpen = true;
+      return S.tab !== "flow" || S.screenId ? routeTo("flow") : render();
+    }
     if (t.id === "todoBtn") {
       const showing = S.todoOpen && S.tab === "flow" && !S.screenId;
       S.todoOpen = !showing;
@@ -1668,6 +1708,15 @@
   window.addEventListener("hashchange", onRoute);
 
   onRoute().then(connect);
+  // Keep the AI-tool status fresh everywhere (the heartbeat file changes every few seconds).
+  setInterval(async () => {
+    try {
+      S.engine = await api("/api/engine");
+    } catch {
+      return;
+    }
+    renderEngine();
+  }, 4000);
   setInterval(async () => {
     if (S.route !== "home" && S.route !== "project") return;
     const was = S.engine?.connected;

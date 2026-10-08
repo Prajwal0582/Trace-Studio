@@ -18,8 +18,10 @@
     <div class="run-meta" id="runMeta"></div>
   </div>
   <ol class="stepper" id="stepper" aria-label="Progress" hidden></ol>
+  <span id="engineStatus" class="engine-slot" role="status"></span>
   <div class="top-actions" id="runActions" hidden>
     <button class="btn" id="todoBtn" aria-controls="todo" aria-expanded="true">To-do <span class="pill" id="todoCount"></span></button>
+    <button type="button" class="approve-why" id="approveWhy"></button>
     <button class="btn primary" id="approveBtn">Approve flow</button>
   </div>
 </header>
@@ -27,9 +29,9 @@
 <nav class="tabs" id="tabs" aria-label="Run sections" hidden>
   <a href="#" data-tab="flow">Flow <span class="pill" id="cFlow"></span></a>
   <a href="#" data-tab="components">Components <span class="pill" id="cComp"></span></a>
-  <a href="#" data-tab="build">Build &amp; compare <span class="pill" id="cBuild"></span></a>
-  <a href="#" data-tab="history">History</a>
-  <div class="tabs-right"><span class="live" id="live"><span class="dot" aria-hidden="true"></span> Live</span></div>
+  <a href="#" data-tab="build">Figma build <span class="pill" id="cBuild"></span></a>
+  <a href="#" data-tab="history">Activity</a>
+  <div class="tabs-right"><span class="live off" id="live" hidden><span class="dot" aria-hidden="true"></span> Studio reconnecting…</span></div>
 </nav>
 
 <main id="main" tabindex="-1">

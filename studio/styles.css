@@ -541,3 +541,33 @@ dialog::backdrop { background: rgba(10, 10, 20, 0.4); }
 .btn.danger-solid:hover { filter: brightness(1.08); background: var(--bad); }
 .dialog .check { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
 #connectJson { white-space: pre; overflow-x: auto; }
+.engine-chip.idle { color: var(--muted); }
+.engine-chip.idle .dot { background: var(--warn); }
+.engine-chip .spinner.sm { width: 10px; height: 10px; border-width: 2px; }
+.approve-why { font-size: 12px; color: var(--muted); max-width: 260px; text-align: right; }
+
+/* ---- header clean-up: one quiet details line, one stage pill, AI status always visible */
+.run-meta { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-meta a { color: var(--muted); }
+.run-meta a:hover { color: var(--accent-text); }
+.run-meta .sep { margin: 0 6px; color: var(--faint); }
+.stepper .stage-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-weight: 600; font-size: 12px; }
+.stepper .stage-pill .of { font-weight: 400; opacity: 0.8; }
+.stepper .stage-pill .n { background: var(--accent); color: #fff; width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; }
+.stepper .stage-pill.done { background: var(--ok-soft); color: var(--ok); }
+.stepper .stage-pill.done .n { background: var(--ok); }
+.engine-slot { margin-left: auto; }
+.engine-slot:empty { display: none; }
+.top-actions { margin-left: 8px; }
+.approve-why { font: inherit; font-size: 12px; color: var(--muted); max-width: 240px; text-align: right; background: none; border: 0; padding: 0; cursor: default; }
+.approve-why.linklike { color: var(--accent-text); text-decoration: underline; cursor: pointer; }
+.approve-why:empty { display: none; }
+.row2 > * { min-width: 0; }
+.row2 input, .row2 select { width: 100%; box-sizing: border-box; min-width: 0; }
+.other-tools { margin-top: 6px; }
+.other-tools summary { cursor: pointer; color: var(--accent-text); font-size: 13px; }
+.other-tools p { margin: 6px 0; }
+.btn.ghost.danger { border-color: transparent; background: none; }
+.run-card .cover.placeholder { aspect-ratio: 16 / 6; }
+.run-card .cover.placeholder span { font-size: 22px; }
+@media (max-width: 900px) { .engine-slot { order: 5; margin-left: 0; } .approve-why { display: none; } }
