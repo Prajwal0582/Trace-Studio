@@ -32,6 +32,21 @@ export class Run extends EventEmitter {
           figma: {},
         };
     this.normalize();
+    this.mtime = this.fileMtime();
+  }
+
+  fileMtime() {
+    try {
+      return fs.statSync(this.file).mtimeMs;
+    } catch {
+      return 0;
+    }
+  }
+
+  // Pick up changes another process (Trace Studio) wrote since we last read or saved.
+  sync() {
+    if (this.fileMtime() !== this.mtime) this.reload();
+    return this;
   }
 
   // Fields added after the first version of run.json.
@@ -45,12 +60,14 @@ export class Run extends EventEmitter {
   reload() {
     this.data = JSON.parse(fs.readFileSync(this.file, "utf8"));
     this.normalize();
+    this.mtime = this.fileMtime();
     this.emit("change", "file");
   }
 
   save(event = "update") {
     this.data.updatedAt = new Date().toISOString();
     fs.writeFileSync(this.file, JSON.stringify(this.data, null, 2));
+    this.mtime = this.fileMtime();
     this.emit("change", event);
   }
 

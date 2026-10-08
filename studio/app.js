@@ -57,6 +57,7 @@
   async function loadHome() {
     S.home = await api("/api/home");
     S.engine = S.home.engine;
+    S.connect = S.home.connect;
     S.runs = S.home.runs;
     S.active = S.home.active;
   }
@@ -67,6 +68,7 @@
     S.engine = d.engine;
     S.projectRuns = d.runs;
     S.designSystems = d.designSystems;
+    S.connect = d.connect;
   }
   async function loadRun() {
     if (!S.runId) return;
@@ -310,15 +312,19 @@
       : `<div class="progress" role="progressbar" aria-label="${esc(label)}" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div style="width:${pct}%"></div></div>`;
   const engineChip = () =>
     engineOn()
-      ? `<span class="engine-chip on"><span class="dot" aria-hidden="true"></span>AI tool connected${S.engine.client ? ` · ${esc(S.engine.client)}` : ""}</span>`
+      ? `<span class="engine-chip on"><span class="dot" aria-hidden="true"></span>AI tool ${S.engine.listening ? "listening" : "connected"}${S.engine.client ? ` · ${esc(S.engine.client)}` : ""}</span>`
       : `<span class="engine-chip off"><span class="dot" aria-hidden="true"></span>No AI tool connected</span>`;
-  const CONNECT_CMD = `claude mcp add --scope user trace -- node "/Users/pshind/Claude code/trace/bin/trace.js" serve`;
-  const connectHelp = () => `<ol class="steps-list">
-      <li><b>Once:</b> add Trace to Claude Code (works in every folder):
-        <div class="copy-row"><code id="connectCmd">${esc(CONNECT_CMD)}</code><button class="btn sm" data-act="copy" data-target="connectCmd">Copy</button></div>
-        <span class="muted">Run it in Terminal. Using Cursor? Run <code>trace init</code> in your project folder instead.</span></li>
+  const connectHelp = () => {
+    const c = S.connect || {};
+    return `<ol class="steps-list">
+      <li><b>Once:</b> add Trace to your AI tool. Claude Code (works in every folder):
+        <div class="copy-row"><code id="connectCmd">${esc(c.claude || "")}</code><button class="btn sm" data-act="copy" data-target="connectCmd">Copy</button></div>
+        <span class="muted">Cursor, VS Code, Windsurf, Codex or Claude Desktop: run <code>trace init</code> in your project folder, or add this MCP server to the tool's config:</span>
+        <div class="copy-row"><code id="connectJson">${esc(c.mcpJson || "")}</code><button class="btn sm" data-act="copy" data-target="connectJson">Copy</button></div></li>
       <li>Make sure the <b>Figma</b> connector is signed in in that tool.</li>
-      <li>Start a <b>new</b> Claude Code session and send the prompt below. Studio switches to live progress when Trace picks it up.</li></ol>`;
+      <li>Start a <b>new</b> session in that tool and send this once. It then keeps listening to Studio, so everything you do here reaches it:
+        <div class="copy-row"><code id="listenPrompt">${esc(c.prompt || "")}</code><button class="btn sm" data-act="copy" data-target="listenPrompt">Copy</button></div></li></ol>`;
+  };
   function statusText(p) {
     const picked = p.flows.filter((f) => f.selected);
     return (
@@ -550,13 +556,13 @@
     $("view-project").innerHTML = `<div class="page"><div class="proj-top">${tabs}${actions}</div>${pausedBanner}${body}</div>`;
   }
   function waitingPanel(p) {
-    const prompt = `Use Trace to work on my Trace Studio project "${p.name}"`;
+    const prompt = `Use Trace to work on my Trace Studio project "${p.name}", then stay connected: call trace_wait in a loop and do whatever it returns.`;
     const copy = `<div class="copy-row"><code id="handoffPrompt">${esc(prompt)}</code><button class="btn sm" data-act="copy" data-target="handoffPrompt">Copy</button></div>`;
     if (!engineOn())
       return `<div class="panel warn">
         <div class="panel-head"><span class="warn-icon" aria-hidden="true">!</span><h3>Not started: no AI tool is connected</h3></div>
         <p>Your project is saved and queued, but nothing is working on it yet. Trace does its work inside your AI tool.</p>
-        ${connectHelp()}${copy}
+        ${connectHelp()}
         <p class="muted">${S.engine?.lastSeen ? `Last connected ${esc(timeAgo(S.engine.lastSeen))}. ` : ""}This page checks every few seconds.</p>
         <div class="btn-row"><a class="btn sm" href="#/new/${encodeURIComponent(p.id)}/1">Edit setup</a></div></div>`;
     return `<div class="panel">
@@ -638,7 +644,7 @@
       })
       .join("");
     const waitingFlows = picked.filter((f) => !S.projectRuns.some((x) => x.id === f.runId || x.flowId === f.id)).length;
-    return `${waitingFlows && !engineOn() ? `<div class="panel warn compact"><b>${waitingFlows} flow${waitingFlows > 1 ? "s are" : " is"} waiting, but no AI tool is connected.</b> Open your AI tool and send: <code>Use Trace to work on my Trace Studio project "${esc(p.name)}"</code> <button class="btn sm" data-act="copy-text" data-text="${esc(`Use Trace to work on my Trace Studio project "${p.name}"`)}">Copy</button></div>` : ""}
+    return `${waitingFlows && !engineOn() ? `<div class="panel warn compact"><b>${waitingFlows} flow${waitingFlows > 1 ? "s are" : " is"} waiting, but no AI tool is connected.</b> Open your AI tool and send: <code>${esc(S.connect?.prompt || "")}</code> <button class="btn sm" data-act="copy-text" data-text="${esc(S.connect?.prompt || "")}">Copy</button></div>` : ""}
     <h3 class="section-title">Flows ${engineChip()}</h3><div class="flow-list">${rows || '<div class="empty">No flows picked.</div>'}</div>
       ${others.length ? `<details class="more-flows"><summary>Pick more flows (${others.length} more proposed)</summary>${chooseFlows({ ...p, flows: others, summary: null })}</details>` : ""}`;
   }

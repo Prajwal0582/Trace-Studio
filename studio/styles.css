@@ -540,3 +540,4 @@ dialog::backdrop { background: rgba(10, 10, 20, 0.4); }
 .btn.danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
 .btn.danger-solid:hover { filter: brightness(1.08); background: var(--bad); }
 .dialog .check { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+#connectJson { white-space: pre; overflow-x: auto; }

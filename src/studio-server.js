@@ -15,6 +15,13 @@ import { DESIGN_SYSTEMS, parseFigmaUrl } from "./design-systems.js";
 import { TRACE_HOME } from "./home.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "studio");
+const BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "trace.js");
+// How to connect an AI tool to this install of Trace (shown in Studio).
+const CONNECT = {
+  claude: `claude mcp add --scope user trace -- node "${BIN}" serve`,
+  mcpJson: JSON.stringify({ mcpServers: { trace: { command: "node", args: [BIN, "serve"] } } }, null, 2),
+  prompt: "Use Trace and stay connected to Trace Studio: call trace_wait in a loop and do whatever it returns.",
+};
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".json": "application/json" };
 
 const readBody = (req) =>
@@ -45,7 +52,7 @@ function engineStatus(root) {
         alive = false;
       }
     }
-    return alive ? { connected: true, client: e.client, working: e.working, since: e.startedAt } : { connected: false, lastSeen: e.lastSeen };
+    return alive ? { connected: true, client: e.client, working: e.working, listening: !!e.listening, since: e.startedAt } : { connected: false, lastSeen: e.lastSeen };
   } catch {
     return { connected: false };
   }
@@ -183,13 +190,13 @@ export function startStudio(opts = {}, legacy = {}) {
         if (p === "/api/home") {
           const allRuns = listRuns();
           const allProjects = projects.list();
-          return send(res, 200, { engine: engineStatus(root), active: activeRun?.data.id || null, projects: allProjects, runs: allRuns, exports: exportsList(allRuns, allProjects), designSystems: DESIGN_SYSTEMS });
+          return send(res, 200, { engine: engineStatus(root), active: activeRun?.data.id || null, projects: allProjects, runs: allRuns, exports: exportsList(allRuns, allProjects), designSystems: DESIGN_SYSTEMS, connect: CONNECT });
         }
         if (p === "/api/runs") return send(res, 200, { active: activeRun?.data.id || null, runs: listRuns() });
         if (p === "/api/run") return send(res, 200, getRun(url.searchParams.get("id")).data);
         if (p === "/api/project") {
           const proj = projects.get(url.searchParams.get("id"));
-          return send(res, 200, { engine: engineStatus(root), project: proj, runs: listRuns().filter((r) => r.projectId === proj.id), designSystems: DESIGN_SYSTEMS });
+          return send(res, 200, { engine: engineStatus(root), project: proj, runs: listRuns().filter((r) => r.projectId === proj.id), designSystems: DESIGN_SYSTEMS, connect: CONNECT });
         }
         if (p === "/api/events") {
           res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });

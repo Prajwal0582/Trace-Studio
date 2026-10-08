@@ -22,12 +22,26 @@ the prototype repo and the Figma destination file there. When they say something
    Then propose flows: `trace_project_update { status: "choose-flows", summary, flows: [{ name,
    description, steps, scenarios, states, screensEstimate }] }`. Leave out prototype-only tooling
    (scenario pickers, debug panels) and say so in `summary.notes`.
-2. Wait. The designer picks flows (each with a scenario) in Studio. Poll `trace_project_next`.
+2. Wait. The designer picks flows (each with a scenario) in Studio. Call `trace_wait` until it returns them.
 3. **TRACE:** for each picked flow without a `runId`, `trace_start { url, flowName, projectId, flowId, scenario }`,
    walk it (section 3 below) and continue with the Studio review loop. The setup is already done, so skip the brief.
 4. Build each approved flow on **its own new page** in the destination file, named
    `Trace / <flow> — <scenario>`. Never modify existing pages. When a page is done, add it to the history:
    `trace_project_update { exports: [{ runId, flowId, flowName, pageName, figmaUrl, screens, status: "built" }] }`.
+
+## Stay connected to Trace Studio
+
+The designer works in Trace Studio, not in this chat. Whenever you have nothing to do (after
+proposing flows, after setting a flow to `review`, after answering requests, or when asked to
+"stay connected"), call `trace_wait` and act on what it returns:
+
+- `event: "project"`: call `trace_project_next { projectId }` and follow its `todo`.
+- `event: "feedback"`: act on every open request and answer, resolve them with `trace_studio_update`.
+- `event: "approved"`: set `stage: "building"` and build the flow in Figma.
+- `event: "timeout"`: nothing happened; call `trace_wait` again.
+
+Keep looping until the designer tells you to stop. Don't ask them to message you about things
+they already did in Studio.
 
 ## 1. Brief (ask only what is missing, in one message)
 
@@ -44,8 +58,8 @@ Right after `trace_start` (pass `source`, `library`, `scenario`), call `trace_st
 designer the link. Every `trace_capture` appears there live as a storyboard.
 - While exploring: `trace_studio_update { stage: "understanding" }`.
 - Ask the designer things through Studio, not only chat: `trace_studio_update { questions: [...] }`.
-- When the proposed flow is complete: `trace_studio_update { stage: "review" }`, then poll
-  `trace_studio_feedback`. Act on every open request (capture the missing state/screen, remove,
+- When the proposed flow is complete: `trace_studio_update { stage: "review" }`, then call
+  `trace_wait` (or `trace_studio_feedback`). Act on every open request (capture the missing state/screen, remove,
   rename…) and close it with `resolveRequests` plus a short reply.
 - **Never build in Figma until `trace_studio_feedback` says `approved: true`.**
 - While building, report each screen: `trace_studio_update { stage: "building", screens: [{ id, build: { status, summary, error } }] }`,

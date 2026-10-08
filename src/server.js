@@ -41,6 +41,7 @@ export async function startServer({ cwd = process.cwd() } = {}) {
   const get = (id) => {
     const s = id ? sessions.get(id) : current;
     if (!s) throw new Error("No active Trace session. Call trace_start first.");
+    s.run?.sync();
     return s;
   };
   const guard = (fn) => async (args) => {
@@ -56,7 +57,7 @@ export async function startServer({ cwd = process.cwd() } = {}) {
   // Heartbeat: tells Trace Studio an AI tool is connected (and what it's on).
   fs.mkdirSync(outDir, { recursive: true });
   const engineFile = path.join(outDir, "engine.json");
-  const engine = { pid: process.pid, startedAt: new Date().toISOString(), client: null, working: null };
+  const engine = { pid: process.pid, startedAt: new Date().toISOString(), client: null, working: null, listening: false };
   const beat = () => {
     try {
       fs.writeFileSync(engineFile, JSON.stringify({ ...engine, lastSeen: new Date().toISOString() }));
@@ -553,6 +554,48 @@ export async function startServer({ cwd = process.cwd() } = {}) {
       const fb = s.run.feedback();
       s.run.markAnswersConsumed();
       return text(fb);
+    })
+  );
+
+  // ---------------------------------------------------------------- listening to Studio
+  // Lets any MCP tool stay connected: the agent calls trace_wait in a loop and
+  // acts on whatever the designer does in Studio, without a new chat message.
+  server.registerTool(
+    "trace_wait",
+    {
+      title: "Wait for the designer in Trace Studio",
+      description:
+        "Blocks until something in Trace Studio needs you, then returns it: a project to explore or flows to trace (same shape as trace_project_next), or designer input on a traced flow (open requests, answers, approval; same shape as trace_studio_feedback). Returns { event: 'timeout' } when nothing happened; call it again. Use this to stay connected instead of asking the designer to message you.",
+      inputSchema: {
+        timeoutSeconds: z.number().int().min(5).max(55).optional().describe("How long to wait before returning 'timeout' (default 45)"),
+        sessionId: z.string().optional().describe("Also watch this traced flow for designer input (default: the current session)"),
+      },
+    },
+    guard(async ({ timeoutSeconds = 45, sessionId }) => {
+      const s = sessionId ? get(sessionId) : current;
+      const deadline = Date.now() + timeoutSeconds * 1000;
+      engine.listening = true;
+      beat();
+      try {
+        while (Date.now() < deadline) {
+          if (s) {
+            const fb = s.run.sync().feedback();
+            if (fb.openRequests.length || fb.answers.length || s.run.data.stage === "approved") {
+              s.run.markAnswersConsumed();
+              return text({ event: fb.approved ? "approved" : "feedback", sessionId: s.id, ...fb });
+            }
+          }
+          const pending = projects.pending();
+          if (pending.length) {
+            return text({ event: "project", projectId: pending[0].id, name: pending[0].name, status: pending[0].status, next: `Call trace_project_next { projectId: "${pending[0].id}" } and follow its todo.` });
+          }
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+        return text({ event: "timeout", next: "Nothing new in Trace Studio. Call trace_wait again to keep listening." });
+      } finally {
+        engine.listening = false;
+        beat();
+      }
     })
   );
 
