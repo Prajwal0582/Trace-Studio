@@ -1,0 +1,23 @@
+{
+  "$comment": "Mapping for the demo prototype against the 'Trace demo — Create campaign' Figma file (local components, so nodeId is used instead of a published componentKey).",
+  "figmaFileKey": "7izfBxBxGBR0YOvMfnXdlD",
+  "components": [
+    { "name": "AppBar", "match": { "dataComponent": ["appbar"] }, "figma": { "nodeId": "1:2" }, "props": { "Title": { "source": "text" } } },
+    {
+      "name": "Button",
+      "storybookId": "inputs-button--contained",
+      "match": { "dataComponent": ["button"] },
+      "figma": { "nodeId": "1:8" },
+      "props": {
+        "Variant": { "source": "attr", "key": "data-variant", "map": { "contained": "Contained", "outlined": "Outlined" } },
+        "Label": { "source": "text" }
+      }
+    },
+    { "name": "Card", "match": { "dataComponent": ["card"] }, "figma": { "nodeId": "1:11" } },
+    { "name": "Chip", "match": { "dataComponent": ["chip"] }, "figma": { "nodeId": "1:9" }, "props": { "Label": { "source": "text" } } },
+    { "name": "Alert", "match": { "dataComponent": ["alert"] }, "figma": { "nodeId": "1:17" } },
+    { "name": "Spinner", "match": { "dataComponent": ["spinner"] }, "figma": { "nodeId": "1:19" } },
+    { "name": "TextField", "match": { "dataComponent": ["textfield"] }, "figma": { "nodeId": "1:22" } },
+    { "name": "EmptyState", "match": { "dataComponent": ["empty-state"] }, "figma": { "nodeId": "1:24" } }
+  ]
+}

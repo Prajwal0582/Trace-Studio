@@ -1,0 +1,30 @@
+{
+  "name": "trace-handoff",
+  "version": "0.1.0",
+  "description": "Trace \u2014 AI agent toolkit that walks a coded prototype and rebuilds it as linked, editable Figma screens using your Storybook-to-Figma component mapping.",
+  "type": "module",
+  "bin": {
+    "trace": "bin/trace.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "templates",
+    "figma-plugin",
+    "trace.mapping.example.json"
+  ],
+  "scripts": {
+    "start": "node bin/trace.js serve",
+    "demo": "node examples/serve-demo.js",
+    "postinstall": "playwright install chromium || true",
+    "demo:trace": "node examples/run-demo.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "playwright": "^1.47.0",
+    "zod": "^3.23.8"
+  }
+}

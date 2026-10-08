@@ -1,0 +1,31 @@
+{
+  "id": "v1",
+  "name": "V1 · Genie Material Design",
+  "components": {
+    "Button": { "set": "c99b981bf623bc359e59bb7177834da90d837800", "props": { "Size": ["sm","md","lg","xl"], "Hierarchy": ["Primary","Secondary","Tertiary","Tertiary gray","Subtle link","Link gray"], "Icon": ["False","Leading","Trailing","Leading and trailing","Only"], "State": ["Default","Hover","Selected","Disabled"] } },
+    "Text field": { "set": "ba8af987340d86c1e7f04cf5c6ffd4ae463346f1" },
+    "Modal": { "set": "04e86cad7173b59843bb71bd0a8c9daf61797d82" },
+    "Navigation": { "set": "aa28fd9f05a1a9b8656beb2dc027107fe7b61d88" },
+    "Chip": { "set": "3c2a0550f334b975a131aa8860168028115442ce", "props": { "Size": ["sm","md","lg"], "Type": ["Pill","Square","Filter"], "Color": ["Gray","Blue","Green","Gray Blue","Red","Orange"] } }
+  },
+  "fills": {
+    "Primary/Gray/50": ["242ff0b19000b51f48551f1b79ebdd23eb62cc7e","#f9fafb"], "Primary/Gray/100": ["fa81161712d5d9b215844eae7cfba08aa522e13c","#f2f4f7"],
+    "Primary/Gray/200": ["a858d487ee06f90f2dc8806aaefeecaea592dffa","#eaecf0"], "Primary/Gray/300": ["bf56a2a2ef73ecbebb7a78e7d33bda4b456a4e4e","#d0d5dd"],
+    "Primary/Gray/400": ["4c1a0e2045c5bd05a206e423db7ef8e26986d555","#98a2b3"], "Primary/Gray/500": ["3819a5bfd2f1973f3a930fa1ed79133450f8c004","#667085"],
+    "Primary/Gray/600": ["0d06076eeb03d62a9a65532b686f8654cd00b4dd","#475467"], "Primary/Gray/700": ["a4f6ae7214f7bcce70fc8adae9e2135169710a54","#344054"],
+    "Primary/Gray/800": ["a24fc769cbeb3ca6a5fe7b2d4d709d85a0a50cd4","#1d2939"], "Primary/Gray/900": ["4a08c2aa0ad665952833dffbbeb7e5c05f2f68e9","#0a111a"],
+    "Primary/Blue/50": ["c0f5e6d33f6b6359bce44993bd26d54972843a90","#f1f9fd"], "Primary/Blue/100": ["9401ea9c0a1421c7d1f5e7986187a0e410f3a522","#e5f3fc"],
+    "Primary/Blue/200": ["e126ba5f51df03305a310929a4058846045ee2cd","#cae6f9"], "Primary/Blue/300": ["8dafc771591fdd5d8eacb379843aa6f0ad9b76ea","#afdbf4"],
+    "Primary/Blue/400": ["e2343134d59abddf84a1ea3cb2a225b1cce2b1b3","#79c1e9"], "Primary/Blue/500": ["a0d3823a46eaf0dfa2f3362283eb1dc0a5954438","#00a0dc"],
+    "Primary/Blue/600": ["6e1f7a69ae03564a4c4aadf4f207c948cf003823","#008dc3"], "Primary/Blue/700": ["93e4852df69f452368f075c8e5d909f009f347f5","#00729f"],
+    "Primary/Blue/800": ["3674886623dd1c2b5bb207948223ca01c76ff310","#05587c"], "Primary/Blue/900": ["033c77299286a79227699d7858730e609172e43d","#00405b"],
+    "Base/White": ["fb153e21562233adea19db0cee926cf744348b62","#ffffff"], "Base/Black": ["6c0e871c2041b7906c98562a42a7aa8af0ec1b2c","#000000"]
+  },
+  "texts": {
+    "Sub Body/Regular": ["ccff93e5dfde7be70b0d39e2d5c8abfac1098df9",12,400], "Sub Body/Medium": ["46580a35d8e614c84140bf02d014809c3b5daa57",12,500], "Sub Body/Semibold": ["f63f9d2d724b5a4f78a4749c0e7d94f2ab831f70",12,600],
+    "Body/Regular": ["bf3e46ec4a96ad56a97b3380588b1f62663431dc",14,400], "Body/Medium": ["b61b926f8f63dd331bb4698ad2d8df146999e3da",14,500], "Body/Semibold": ["8be111fe385511065b0c2b8eb9b595b6a638fa3f",14,600],
+    "Body lg/Regular": ["062a800e9bcb409bd43930f931debb601d4af944",16,400], "Body lg/Medium": ["14c061259b5bba8a66bc38c9558dc63e66507320",16,500], "Body lg/Semibold": ["87ceb6ffdc09d534195d7fa0ddb2effc62f68cef",16,600],
+    "Heading/Regular": ["db4e2877eb5e4c3bc0243c33f7b50aa982779440",20,400], "Heading/Medium": ["eece18ea8901e46f871accadc0be0cfc9cce5fd3",20,500], "Heading/Semibold": ["c24a3e9498e803f8736edaed26b03722db52d161",20,600],
+    "Heading lg/Regular": ["2eaed211696556a57104daa3c6e0eea62b3e7c44",24,400], "Heading lg/Medium": ["833f9d4b2fd539ba78eb00cf788ba0e0ff1f6296",24,500], "Heading lg/Semibold": ["c9e2f6a9e94d66be2b749288c28b81714b297ed2",24,600]
+  }
+}

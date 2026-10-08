@@ -1,0 +1,77 @@
+{
+  "$comment": "Storybook-to-Figma mapping for Trace. One entry per design-system component. figma.componentKey comes from the published library (Figma MCP search_design_system, or the component's 'Copy link' / Code Connect). Leave it blank rather than guess: Trace flags unmapped items for review.",
+  "figmaFileKey": "",
+  "components": [
+    {
+      "name": "Button",
+      "storybookId": "inputs-button--contained",
+      "match": { "react": ["Button", "LoadingButton"], "selectors": [".MuiButton-root"], "dataComponent": ["button"] },
+      "figma": { "componentKey": "" },
+      "props": {
+        "Variant": { "source": "prop", "key": "variant", "default": "text", "map": { "contained": "Contained", "outlined": "Outlined", "text": "Text" } },
+        "Size": { "source": "prop", "key": "size", "default": "medium", "map": { "small": "Small", "medium": "Medium", "large": "Large" } },
+        "State": { "source": "state", "key": "disabled", "map": { "true": "Disabled" } },
+        "Label": { "source": "text" }
+      }
+    },
+    {
+      "name": "IconButton",
+      "match": { "react": ["IconButton"], "selectors": [".MuiIconButton-root"], "dataComponent": ["icon-button"] },
+      "figma": { "componentKey": "" },
+      "props": { "Size": { "source": "prop", "key": "size", "default": "medium" } }
+    },
+    {
+      "name": "TextField",
+      "storybookId": "inputs-textfield--outlined",
+      "match": { "react": ["TextField"], "selectors": [".MuiTextField-root"], "dataComponent": ["textfield", "input"] },
+      "figma": { "componentKey": "" },
+      "props": {
+        "Variant": { "source": "prop", "key": "variant", "default": "outlined" },
+        "Error": { "source": "state", "key": "error" },
+        "Label": { "source": "prop", "key": "label" }
+      }
+    },
+    {
+      "name": "Chip",
+      "match": { "react": ["Chip"], "selectors": [".MuiChip-root"], "dataComponent": ["chip", "badge"] },
+      "figma": { "componentKey": "" },
+      "props": { "Color": { "source": "prop", "key": "color", "default": "default" }, "Label": { "source": "text" } }
+    },
+    {
+      "name": "Card",
+      "match": { "react": ["Card"], "selectors": [".MuiCard-root"], "dataComponent": ["card"] },
+      "figma": { "componentKey": "" }
+    },
+    {
+      "name": "Alert",
+      "match": { "react": ["Alert"], "selectors": [".MuiAlert-root"], "dataComponent": ["alert"] },
+      "figma": { "componentKey": "" },
+      "props": { "Severity": { "source": "prop", "key": "severity", "default": "info" } }
+    },
+    {
+      "name": "Spinner",
+      "match": { "react": ["CircularProgress"], "selectors": [".MuiCircularProgress-root"], "dataComponent": ["spinner"] },
+      "figma": { "componentKey": "" }
+    },
+    {
+      "name": "AppBar",
+      "match": { "react": ["AppBar"], "selectors": [".MuiAppBar-root"], "dataComponent": ["appbar", "header"] },
+      "figma": { "componentKey": "" }
+    },
+    {
+      "name": "Tabs",
+      "match": { "react": ["Tabs"], "selectors": [".MuiTabs-root"], "dataComponent": ["tabs"] },
+      "figma": { "componentKey": "" }
+    },
+    {
+      "name": "Table",
+      "match": { "react": ["Table", "DataGrid"], "selectors": [".MuiTable-root", ".MuiDataGrid-root"], "dataComponent": ["table"] },
+      "figma": { "componentKey": "" }
+    },
+    {
+      "name": "EmptyState",
+      "match": { "dataComponent": ["empty-state"] },
+      "figma": { "componentKey": "" }
+    }
+  ]
+}

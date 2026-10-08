@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Campaigns — demo prototype</title>
+<style>
+  body { margin: 0; font: 14px/1.5 Inter, system-ui, sans-serif; background: #f6f7f9; color: #1d2433; }
+  header { background: #1f3a8a; color: #fff; padding: 16px 32px; font-weight: 600; font-size: 18px; }
+  main { padding: 32px; max-width: 960px; }
+  h1 { margin: 0 0 16px; font-size: 24px; }
+  .btn { border: 0; border-radius: 6px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.contained { background: #2563eb; color: #fff; }
+  .btn.outlined { background: #fff; color: #2563eb; border: 1px solid #2563eb; }
+  .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; justify-content: space-between; align-items: center; }
+  .chip { background: #e0e7ff; color: #3730a3; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
+  .alert { background: #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 6px; }
+  .empty { text-align: center; padding: 48px; background: #fff; border-radius: 8px; }
+  .spinner { width: 32px; height: 32px; border: 3px solid #c7d2fe; border-top-color: #2563eb; border-radius: 50%; animation: s 1s linear infinite; margin: 48px auto; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  label { display: block; margin: 12px 0 4px; font-weight: 600; }
+  input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 320px; font: inherit; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+  .promo { background: linear-gradient(90deg, #fde68a, #fca5a5); padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<header data-component="appbar">Acme Campaigns</header>
+<main id="app"></main>
+<script>
+  const app = document.getElementById("app");
+  const h = (s) => (app.innerHTML = s);
+  async function list() {
+    h('<h1>Campaigns</h1><div data-component="spinner" class="spinner"></div>');
+    try {
+      const res = await fetch("/api/campaigns");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const items = await res.json();
+      if (!items.length) {
+        return h(`<h1>Campaigns</h1><div class="empty" data-component="empty-state"><p>No campaigns yet</p>
+          <button class="btn contained" data-component="button" data-variant="contained" onclick="create()">New campaign</button></div>`);
+      }
+      h(`<h1>Campaigns</h1>
+        <div class="promo">New: audience insights are live</div>
+        <div class="toolbar"><button class="btn contained" data-component="button" data-variant="contained" onclick="create()">New campaign</button>
+        <button class="btn outlined" data-component="button" data-variant="outlined">Export</button></div>
+        ${items.map((c) => `<div class="card" data-component="card"><div><strong>${c.name}</strong><div>${c.audience}</div></div><span class="chip" data-component="chip">${c.status}</span></div>`).join("")}`);
+    } catch (e) {
+      h(`<h1>Campaigns</h1><div class="alert" data-component="alert" role="alert">Couldn't load campaigns. Try again.</div>`);
+    }
+  }
+  function create() {
+    h(`<h1>New campaign</h1>
+      <label for="n">Name</label><input id="n" data-component="textfield" placeholder="Spring launch" />
+      <label for="a">Audience</label><input id="a" data-component="textfield" placeholder="All customers" />
+      <div class="toolbar" style="margin-top:24px"><button class="btn contained" data-component="button" data-variant="contained" onclick="list()">Save</button>
+      <button class="btn outlined" data-component="button" data-variant="outlined" onclick="list()">Cancel</button></div>`);
+  }
+  list();
+</script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trace Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="#/" aria-label="Trace Studio home"><span class="mark" aria-hidden="true">▲</span> Trace <span class="sub">Studio</span></a>
+  <div class="run" id="runHead" hidden>
+    <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+    <div class="run-title" id="runTitle"></div>
+    <div class="run-meta" id="runMeta"></div>
+  </div>
+  <ol class="stepper" id="stepper" aria-label="Progress" hidden></ol>
+  <div class="top-actions" id="runActions" hidden>
+    <button class="btn" id="todoBtn" aria-controls="todo" aria-expanded="true">To-do <span class="pill" id="todoCount"></span></button>
+    <button class="btn primary" id="approveBtn">Approve flow</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs" aria-label="Run sections" hidden>
+  <a href="#" data-tab="flow">Flow <span class="pill" id="cFlow"></span></a>
+  <a href="#" data-tab="components">Components <span class="pill" id="cComp"></span></a>
+  <a href="#" data-tab="build">Build &amp; compare <span class="pill" id="cBuild"></span></a>
+  <a href="#" data-tab="history">History</a>
+  <div class="tabs-right"><span class="live" id="live"><span class="dot" aria-hidden="true"></span> Live</span></div>
+</nav>
+
+<main id="main" tabindex="-1">
+  <section class="view" id="view-home" aria-label="Home"></section>
+  <section class="view" id="view-new" aria-label="New project"></section>
+  <section class="view" id="view-project" aria-label="Project"></section>
+
+  <section class="view" id="view-flow" aria-label="Flow">
+    <div class="flow-main">
+      <div class="flow-toolbar" role="toolbar" aria-label="Canvas">
+        <button class="btn sm icon" data-zoom="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+        <button class="btn sm ghost zoom-val" data-zoom="reset" id="zoomVal" title="Reset to 100% (0)">100%</button>
+        <button class="btn sm icon" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button class="btn sm" data-zoom="fit" title="Fit flow to window (Shift+1)">Fit</button>
+        <span class="toolbar-sep" aria-hidden="true"></span>
+        <span class="hint">Drag screens to regroup or reorder · arrow keys to move between screens · Enter to open</span>
+      </div>
+      <div class="progress-strip" id="progressStrip" role="status" hidden></div>
+      <div class="board-scroll" id="boardScroll">
+        <div class="board-sizer" id="boardSizer">
+          <div class="board" id="board"></div>
+        </div>
+      </div>
+      <section class="detail" id="detail" hidden aria-label="Screen detail"></section>
+    </div>
+    <aside class="todo" id="todo" aria-label="To-do"></aside>
+  </section>
+
+  <section class="view" id="view-components" aria-label="Components"></section>
+  <section class="view" id="view-build" aria-label="Build and compare"></section>
+  <section class="view" id="view-history" aria-label="History"></section>
+</main>
+
+<dialog id="addDialog" aria-labelledby="addTitle">
+  <form method="dialog" class="dialog">
+    <h3 id="addTitle">Add to the flow</h3>
+    <p class="muted">Trace will capture this from the prototype and add it to the storyboard.</p>
+    <label>Type
+      <select id="addType">
+        <option value="add-state">A state of a screen (error, empty, dropdown open…)</option>
+        <option value="add-screen">A new screen / step</option>
+      </select>
+    </label>
+    <label>Screen
+      <select id="addAfter"></select>
+    </label>
+    <fieldset class="quick-states" id="quickStates">
+      <legend>Common states</legend>
+    </fieldset>
+    <label>What should it show?
+      <textarea id="addText" rows="3" placeholder="e.g. The Save list modal with the name field empty and Save disabled"></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn primary">Add to flow</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="approveDialog" aria-labelledby="approveTitle">
+  <form method="dialog" class="dialog wide">
+    <h3 id="approveTitle">Approve and build in Figma?</h3>
+    <div id="approveBody"></div>
+    <div class="dialog-actions">
+      <button value="cancel" class="btn">Keep reviewing</button>
+      <button value="ok" class="btn primary" id="approveConfirm">Approve &amp; build</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="deleteDialog" aria-labelledby="deleteTitle">
+  <form method="dialog" class="dialog">
+    <h3 id="deleteTitle">Delete this project?</h3>
+    <div id="deleteBody"></div>
+    <div class="dialog-actions">
+      <button value="cancel" class="btn">Keep it</button>
+      <button value="ok" class="btn danger-solid">Delete project</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="sr-only" id="announcer" aria-live="polite"></div>
+<script src="/app.js"></script>
+</body>
+</html>
