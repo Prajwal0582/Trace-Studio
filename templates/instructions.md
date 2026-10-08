@@ -26,14 +26,17 @@ When the designer just asks to translate a prototype ("trace this flow into <fig
    small targeted `use_figma` edits.
 
 What the build does for you, so you don't have to:
-- **App shell:** with V1, every screen is an instance of the design system's app shell (left
+- **App shell:** with V1, every screen gets a pasted copy of the design system's app shell (left
   navigation + header, Figma node 40:2780 in the Trace demo file). Only the content area is rebuilt.
   The active nav item and header texts (e.g. "Free prompts: 19 of 20") are set to match each
   screen. The shell frame must be in the destination file.
-- **Library first:** buttons, chips and text fields become library components (closest variant).
-- **Missing components are made, once:** anything the library doesn't have is built from the
-  prototype; if its code component repeats (cards, rows), it is built once as a local component
-  and reused. Don't search the library element by element.
+- **Only the V1 library:** buttons, chips and text fields become V1 library components (closest
+  variant); colours and text use V1 colour and text styles when the prototype's value is close
+  (lightly altered values still snap to the token).
+- **No new components:** for now Trace makes **no local components**. Anything the library doesn't
+  have is drawn as plain frames and text from the prototype. Don't create components yourself and
+  don't search the library element by element. (`components: true` on `trace_figma_script` turns
+  reuse back on: the shell and repeated parts become local components.)
 - **Overlays:** dialogs become small frames opened with "Open overlay".
 
 Use the Studio review loop below only when the designer works in Trace Studio (a Studio project,

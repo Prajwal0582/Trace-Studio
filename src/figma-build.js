@@ -83,7 +83,7 @@ function shellState(nav, header, inNav, inHeader) {
   return st;
 }
 
-export function sharedParts(screens, { pageName = "", libraryNav = false, shell = null } = {}) {
+export function sharedParts(screens, { pageName = "", libraryNav = false, shell = null, reuse = true } = {}) {
   // Code components drawn more than once anywhere in the flow.
   const seen = {};
   for (const { layout: L } of screens) for (const n of L.nodes) if (isBlock(n) && n.c && smallEnough(L, n)) seen[n.c] = (seen[n.c] || 0) + 1;
@@ -110,7 +110,9 @@ export function sharedParts(screens, { pageName = "", libraryNav = false, shell 
       const dy = header ? shell.content.y - (header.y + header.h) : 0;
       if (dx || dy) nodes = nodes.map((n) => (n.fixed && n.x <= 0 && n.w >= L.w - 2 ? n : { ...n, x: n.x + dx, y: n.y + dy }));
     }
-    for (const r of useShell ? regionsOf({ ...L, nodes }, { libraryNav: true, repeated }).filter((x) => x.kind.startsWith("c:")) : regions) {
+    // Without reuse, nothing becomes a local component: every part is drawn on its screen.
+    if (!reuse) nodes = nodes.map((n) => (n.t === "nav" && !libraryNav ? { ...n, t: "rect" } : n));
+    for (const r of !reuse ? [] : useShell ? regionsOf({ ...L, nodes }, { libraryNav: true, repeated }).filter((x) => x.kind.startsWith("c:")) : regions) {
       const b = r.box;
       const inside = nodes.filter((n) => contains(b, n));
       if (!inside.includes(b)) continue; // already part of a bigger shared part
@@ -166,7 +168,7 @@ export function screenScript({ layout, frameName, pageName, x, y, lib, screenId,
 
 // Install the builder + library profile into the Figma file once (hidden
 // shared plugin data). Each screen then needs only a short call.
-export const ENGINE_VERSION = "2";
+export const ENGINE_VERSION = "3";
 export function installScript(lib) {
   return `figma.root.setSharedPluginData("trace", "builder", ${JSON.stringify(BUILDER)});
 figma.root.setSharedPluginData("trace", "builder_v", ${JSON.stringify(ENGINE_VERSION)});
@@ -205,7 +207,7 @@ async function buildScreen(D) {
   const nearestFill = (c) => {
     let best = null, bd = 1e9;
     for (const f of fillList) { const d = Math.hypot(f.rgb[0] - c[0], f.rgb[1] - c[1], f.rgb[2] - c[2]); if (d < bd) { bd = d; best = f; } }
-    return bd <= 8 ? best : null;
+    return bd <= 24 ? best : null; // a lightly altered colour still uses the token
   };
   const paint = (c) => ({ type: "SOLID", color: { r: c[0] / 255, g: c[1] / 255, b: c[2] / 255 }, opacity: c[3] == null ? 1 : c[3] });
   async function fill(node, c, prop) {
@@ -230,7 +232,8 @@ async function buildScreen(D) {
   async function text(parent, n, x, y, w, h) {
     const t = figma.createText();
     const f = n.f || { size: 14, weight: 400 };
-    const ts = textStyles.find((s) => s.size === f.size && s.weight === W(f.weight));
+    // Closest library text style: same weight, size within 2px (lightly altered text keeps its style).
+    const ts = textStyles.filter((s) => s.weight === W(f.weight) && Math.abs(s.size - f.size) <= 2).sort((a, b) => Math.abs(a.size - f.size) - Math.abs(b.size - f.size))[0];
     t.fontName = await font(styleName(ts ? ts.weight : f.weight));
     t.characters = n.text || " ";
     if (ts) { try { await t.setTextStyleIdAsync(await styleId(ts.key)); report.styled++; } catch (e) { t.fontSize = f.size; } }
@@ -339,30 +342,38 @@ async function buildScreen(D) {
   }
   if (D.shell) {
     try {
+      const src = await figma.getNodeByIdAsync(D.shell.nodeId);
       const key = "shell_" + D.shell.nodeId;
-      let comp = null;
-      const sid = figma.root.getSharedPluginData("trace", key);
-      if (sid) { comp = await figma.getNodeByIdAsync(sid); if (comp && comp.type !== "COMPONENT") comp = null; }
-      if (!comp) {
-        const src = await figma.getNodeByIdAsync(D.shell.nodeId);
-        if (!src) throw new Error("the shell frame " + D.shell.nodeId + " isn't in this file (it's in file " + D.shell.fileKey + "). Build into that file, or publish the shell as a component in the library.");
-        if (src.type === "COMPONENT") comp = src;
-        else {
-          const pg = await partsPage();
-          const copy = src.clone();
-          pg.appendChild(copy);
-          copy.x = 0; copy.y = pg.children.reduce((m, c) => (c === copy ? m : Math.max(m, c.y + c.height + 120)), 0);
-          comp = figma.createComponentFromNode(copy);
-          comp.name = "App shell";
+      let base = null;
+      if (!D.shell.asComponent) {
+        // Paste a plain copy of the shell frame under the content (no component is made).
+        if (!src) throw new Error("the shell frame " + D.shell.nodeId + " isn't in this file (it's in file " + D.shell.fileKey + "). Build into that file.");
+        base = src.clone();
+      } else {
+        // Shell as a component (made once), placed as an instance.
+        const sid = figma.root.getSharedPluginData("trace", key);
+        let comp = sid ? await figma.getNodeByIdAsync(sid) : null;
+        if (comp && comp.type !== "COMPONENT") comp = null;
+        if (!comp) {
+          if (!src) throw new Error("the shell frame " + D.shell.nodeId + " isn't in this file (it's in file " + D.shell.fileKey + "). Build into that file, or publish the shell as a component in the library.");
+          if (src.type === "COMPONENT") comp = src;
+          else {
+            const pg = await partsPage();
+            const copy = src.clone();
+            pg.appendChild(copy);
+            copy.x = 0; copy.y = pg.children.reduce((m, c) => (c === copy ? m : Math.max(m, c.y + c.height + 120)), 0);
+            comp = figma.createComponentFromNode(copy);
+            comp.name = "App shell";
+          }
+          figma.root.setSharedPluginData("trace", key, comp.id);
         }
-        figma.root.setSharedPluginData("trace", key, comp.id);
+        base = comp.createInstance();
       }
-      const inst = comp.createInstance();
-      frame.insertChild(0, inst);
-      inst.x = 0; inst.y = 0;
-      inst.name = "App shell";
-      await shellOverrides(inst, D.shell);
-      count("App shell");
+      frame.insertChild(0, base);
+      base.x = 0; base.y = 0;
+      base.name = "App shell";
+      await shellOverrides(base, D.shell);
+      count(D.shell.asComponent ? "App shell" : "App shell (copy)");
     } catch (e) {
       report.failures.push("Shell: " + e.message);
     }

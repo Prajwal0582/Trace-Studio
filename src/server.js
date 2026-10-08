@@ -452,18 +452,19 @@ export async function startServer({ cwd = process.cwd() } = {}) {
         runId: z.string().optional().describe("Build a past run (its folder name) instead of the current session"),
         sessionId: z.string().optional(),
         shell: z.boolean().optional().describe("Use the design system's app shell for nav + header (default true)"),
+        components: z.boolean().optional().describe("Make local components for the shell and repeated parts (default false: paste copies, use only the library's components and styles)"),
         planFile: z.string().optional().describe("Legacy: build a plan.json with the Trace Importer builder"),
         notes: z.boolean().optional(),
       },
     },
-    guard(async ({ screenIds, runId, sessionId, shell = true, planFile, notes = true }) => {
+    guard(async ({ screenIds, runId, sessionId, shell = true, components = false, planFile, notes = true }) => {
       if (planFile) {
         const plan = JSON.parse(fs.readFileSync(path.resolve(cwd, planFile), "utf8"));
         const code = `${builderSource()}\n\nreturn await buildTraceScreens(${JSON.stringify(plan)}, { notes: ${notes} });`;
         return text({ code });
       }
       const run = runFor({ sessionId, runId });
-      const b = prepareBuild(run, { shell });
+      const b = prepareBuild(run, { shell, components });
       const want = screenIds?.length ? b.screens.filter((x) => screenIds.includes(x.id)) : b.screens;
       if (!want.length) throw new Error(`No matching screens. Available: ${b.screens.map((x) => x.id).join(", ")}`);
       // Batch screens into calls of ~40 KB so each use_figma round trip does several.

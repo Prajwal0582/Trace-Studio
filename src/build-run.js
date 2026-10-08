@@ -14,12 +14,16 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export const libraryIdFor = (run, override) => override || (/V2/.test(run.data.project?.library || "") ? "v2" : "v1");
 
-export function prepareBuild(run, { libId, libraryNav = false, shell = true } = {}) {
+// components: false (the default for now) makes no local components: the
+// shell is pasted as a copy and repeated parts are drawn on each screen. Only
+// the design system's own components, colour and text styles are used.
+export function prepareBuild(run, { libId, libraryNav = false, shell = true, components = false } = {}) {
   const d = run.data;
   const dir = run.dir;
   libId = libraryIdFor(run, libId);
   const lib = loadLibrary(libId);
-  const shellDef = shell ? DESIGN_SYSTEMS.find((x) => x.id === libId)?.shell || null : null;
+  const shellDef0 = shell ? DESIGN_SYSTEMS.find((x) => x.id === libId)?.shell || null : null;
+  const shellDef = shellDef0 && { ...shellDef0, asComponent: components };
   const pageName = `Trace / ${d.project.flowName}`.slice(0, 100);
 
   // storyboard order (same rules as Trace Studio)
@@ -60,7 +64,7 @@ export function prepareBuild(run, { libId, libraryNav = false, shell = true } = 
     }
   });
   const nonOverlay = jobs.filter((j) => !j.overlay);
-  const shared = sharedParts(nonOverlay.map((j) => ({ id: j.s.id, layout: j.layout })), { pageName, libraryNav, shell: shellDef });
+  const shared = sharedParts(nonOverlay.map((j) => ({ id: j.s.id, layout: j.layout })), { pageName, libraryNav, shell: shellDef, reuse: components });
   const screens = jobs.map(({ s, layout, frameName, x, y, overlay }) => {
     const sp = overlay ? { layout, parts: [], shell: null } : shared[s.id];
     const code = screenCall({ layout: sp.layout, frameName, pageName, x, y, libId: lib.id, screenId: s.id, notes: s.notes, parts: sp.parts, shell: sp.shell });
