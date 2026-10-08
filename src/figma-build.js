@@ -109,6 +109,9 @@ export function sharedParts(screens, { pageName = "", libraryNav = false, shell 
       const dx = nav ? shell.content.x - (nav.x + nav.w) : 0;
       const dy = header ? shell.content.y - (header.y + header.h) : 0;
       if (dx || dy) nodes = nodes.map((n) => (n.fixed && n.x <= 0 && n.w >= L.w - 2 ? n : { ...n, x: n.x + dx, y: n.y + dy }));
+      // Page-wide backgrounds and wrappers would cover the shell's nav and header:
+      // only what sits inside the shell's content area is drawn.
+      nodes = nodes.filter((n) => n.x >= shell.content.x - 2 && n.y >= shell.content.y - 2);
     }
     // Without reuse, nothing becomes a local component: every part is drawn on its screen.
     if (!reuse) nodes = nodes.map((n) => (n.t === "nav" && !libraryNav ? { ...n, t: "rect" } : n));
@@ -168,7 +171,7 @@ export function screenScript({ layout, frameName, pageName, x, y, lib, screenId,
 
 // Install the builder + library profile into the Figma file once (hidden
 // shared plugin data). Each screen then needs only a short call.
-export const ENGINE_VERSION = "3";
+export const ENGINE_VERSION = "5";
 export function installScript(lib) {
   return `figma.root.setSharedPluginData("trace", "builder", ${JSON.stringify(BUILDER)});
 figma.root.setSharedPluginData("trace", "builder_v", ${JSON.stringify(ENGINE_VERSION)});
@@ -271,7 +274,9 @@ async function buildScreen(D) {
     const c = lib.components[name];
     if (!c) return null;
     const set = (sets[name] ||= await figma.importComponentSetByKeyAsync(c.set));
-    const score = (v) => Object.entries(want).reduce((s, [k, val]) => s + (v.variantProperties && v.variantProperties[k] === val ? 1 : 0), 0);
+    // Earlier keys in "want" matter more (e.g. Icon before Hierarchy before Size).
+    const keys = Object.keys(want);
+    const score = (v) => keys.reduce((s, k, i) => s + (v.variantProperties && v.variantProperties[k] === want[k] ? keys.length - i : 0), 0);
     let best = set.defaultVariant, bs = 0; // nothing matches → the set's default variant
     for (const v of set.children) { const s = score(v); if (s > bs) { bs = s; best = v; } }
     return best;
@@ -314,7 +319,7 @@ async function buildScreen(D) {
       let items = [];
       for (const p of inst.findAll((x) => "children" in x && x.children.length >= 3)) {
         const byName = {};
-        for (const c of p.children) if (c.type !== "TEXT" && c.findOne && c.findOne((x) => x.type === "TEXT")) (byName[c.name] ||= []).push(c);
+        for (const c of p.children) if (c.type !== "TEXT" && "children" in c && c.findOne((x) => x.type === "TEXT")) (byName[c.name] ||= []).push(c);
         for (const g of Object.values(byName)) if (g.length > items.length) items = g;
       }
       const label = (it) => it.findOne((x) => x.type === "TEXT").characters.trim().toLowerCase();
@@ -391,6 +396,7 @@ async function buildScreen(D) {
   // Pill-shaped buttons are chips in the design system.
   for (const n of list) if (n.t === "button" && n.text && n.h <= 32 && n.r >= n.h / 2 - 1 && n.bg) n.t = "chip";
 
+  const chipRows = {}; // right edge of the last chip on each row, so wider library chips don't overlap
   async function draw(parent, n) {
     if (n.t === "nav") {
       const v = await variant("Navigation", { Type: "Default", Size: "Desktop" });
@@ -411,29 +417,41 @@ async function buildScreen(D) {
       const hierarchy = filled ? "Primary" : n.bg && n.bg[3] >= 0.9 || n.border ? "Secondary" : n.f && n.f.color && hue(n.f.color) === "Blue" ? "Subtle link" : "Tertiary gray";
       const size = n.h <= 36 ? "sm" : n.h <= 40 ? "md" : n.h <= 44 ? "lg" : "xl";
       const icon = n.icon && n.text ? "Leading" : n.icon ? "Only" : "False";
-      const v = await variant("Button", { Hierarchy: hierarchy, Size: size, Icon: icon, State: n.disabled ? "Disabled" : "Default", Destructive: "False" });
+      const v = await variant("Button", { Icon: icon, Hierarchy: hierarchy, Size: size, State: n.disabled ? "Disabled" : "Default", Destructive: "False" });
       const inst = v.createInstance(); parent.appendChild(inst);
       if (n.text) await setLabel(inst, n.text);
+      else for (const t of inst.findAll((x) => x.type === "TEXT" && x.name !== "image" && !/icon/i.test(x.name))) t.visible = false; // icon-only: no "Button" label
       try { inst.resize(Math.max(inst.width, n.w), inst.height); } catch (e) {}
       inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
       inst.name = "Button / " + (n.text || "icon").slice(0, 30);
       count("Button");
     } else if (n.t === "chip") {
-      const v = await variant("Chip", { Size: n.h <= 22 ? "sm" : n.h <= 26 ? "md" : "lg", Type: "Pill", Icon: "None", Color: hue(n.bg), State: "Default" });
+      const v = await variant("Chip", { Size: n.h <= 24 ? "sm" : n.h <= 28 ? "md" : "lg", Type: "Pill", Icon: "None", Color: hue(n.bg), State: "Default" });
       const inst = v.createInstance(); parent.appendChild(inst);
-      await setLabel(inst, n.text);
-      if (inst.width > n.w + 4) { try { inst.resize(n.w, inst.height); } catch (e) {} }
-      inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
+      await setLabel(inst, n.text); // the chip sizes itself around its label
+      const row = parent.id + ":" + Math.round(n.y / 10);
+      inst.x = Math.max(n.x, chipRows[row] == null ? -1e9 : chipRows[row] + 8); inst.y = n.y + (n.h - inst.height) / 2;
+      chipRows[row] = inst.x + inst.width;
       inst.name = "Chip / " + n.text.slice(0, 30);
       count("Chip");
     } else if (n.t === "input" && !n.multiline && lib.components["Text field"]) {
       // Library first: small differences from the prototype's styling are accepted.
-      const v = await variant("Text field", {});
+      const v = await variant("Text field", { "Help text": "False", Icon: "False", State: n.value ? "Filled" : "Placeholder", Size: n.h <= 36 ? "sm" : n.h <= 40 ? "md" : n.h <= 44 ? "lg" : "xl" });
       const inst = v.createInstance(); parent.appendChild(inst);
       try { inst.resize(Math.max(1, n.w), inst.height); } catch (e) {}
       inst.x = n.x; inst.y = n.y + (n.h - inst.height) / 2;
       const label = n.value || n.placeholder;
-      if (label) await setLabel(inst, label);
+      // The field's own text holds the value/placeholder; the prototype shows no label or help text.
+      const texts = inst.findAll((x) => x.type === "TEXT");
+      const main = texts.find((x) => /^(text|value|placeholder)$/i.test(x.name));
+      for (const t of texts) if (/^(label|help text)$/i.test(t.name)) t.visible = false;
+      if (label && main) {
+        for (const f of main.getRangeAllFontNames(0, main.characters.length)) await figma.loadFontAsync(f);
+        main.characters = label;
+        // stretch the field's inner boxes so the text runs across the whole field
+        for (let p = main.parent; p && p !== inst; p = p.parent) { try { p.layoutSizingHorizontal = "FILL"; } catch (e) {} }
+        try { main.layoutSizingHorizontal = "FILL"; } catch (e) {}
+      } else if (label) await setLabel(inst, label);
       inst.name = "Text field" + (label ? " / " + label.slice(0, 30) : "");
       count("Text field");
     } else if (n.t === "input") {
@@ -497,7 +515,7 @@ async function buildScreen(D) {
   }
   async function setText(k, value) {
     if (k.type === "INSTANCE") return setLabel(k, value);
-    const t = k.type === "TEXT" ? k : k.findOne && k.findOne((x) => x.type === "TEXT");
+    const t = k.type === "TEXT" ? k : "children" in k && k.findOne((x) => x.type === "TEXT");
     if (!t) return;
     for (const f of t.getRangeAllFontNames(0, t.characters.length)) await figma.loadFontAsync(f);
     t.characters = value || " ";
@@ -516,7 +534,7 @@ async function buildScreen(D) {
       for (const [i, c] of Object.entries(use.bg)) { const k = kid(i); if (k && k.type !== "TEXT" && k.type !== "INSTANCE") await fill(k, c); }
       for (const [i, c] of Object.entries(use.color)) {
         const k = kid(i);
-        const t = k && (k.type === "TEXT" ? k : k.type !== "INSTANCE" && k.findOne && k.findOne((x) => x.type === "TEXT"));
+        const t = k && (k.type === "TEXT" ? k : k.type !== "INSTANCE" && "children" in k && k.findOne((x) => x.type === "TEXT"));
         if (t) await fill(t, c || [0, 0, 0, 1]);
       }
       report.parts.push(comp.name);

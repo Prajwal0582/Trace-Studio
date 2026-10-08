@@ -53,7 +53,9 @@ export function prepareBuild(run, { libId, libraryNav = false, shell = true, com
       const base = dlg && col.find((o) => o !== s && !overlayOf.has(o.id));
       let overlay = false;
       if (dlg && base) {
-        const inside = (nd) => nd !== dlg && nd.x >= dlg.x - 1 && nd.y >= dlg.y - 1 && nd.x + nd.w <= dlg.x + dlg.w + 1 && nd.y + nd.h <= dlg.y + dlg.h + 1;
+        // The dialog's own content (drawn inside it in the code), not the page behind it.
+        const marked = layout.nodes.some((nd) => nd.dg);
+        const inside = (nd) => nd !== dlg && (marked ? nd.dg : nd.x >= dlg.x - 1 && nd.y >= dlg.y - 1 && nd.x + nd.w <= dlg.x + dlg.w + 1 && nd.y + nd.h <= dlg.y + dlg.h + 1);
         layout = { w: dlg.w, h: dlg.h, bg: null, nodes: layout.nodes.filter(inside).map((nd) => ({ ...nd, x: nd.x - dlg.x, y: nd.y - dlg.y })) };
         frameName += " (overlay)";
         overlayOf.set(s.id, base.id);
